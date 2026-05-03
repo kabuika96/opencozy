@@ -67,6 +67,7 @@ type TerminalMessage =
 
 const LAST_SESSION_KEY = "opencozy.lastOpenCozySessionId";
 const SESSION_NAME_MAX_LENGTH = 80;
+const TERMINAL_WRITE_CHUNK_SIZE = 32_000;
 const ARROW_KEYS = {
   up: "\u001b[A",
   down: "\u001b[B",
@@ -407,6 +408,8 @@ function TerminalPane({
     let lastSentCols = 0;
     let lastSentRows = 0;
     let hasOutput = false;
+    let pendingTerminalOutput = "";
+    let writingTerminalOutput = false;
     const socket = new WebSocket(wsUrl(session.id));
     socketRef.current = socket;
     const terminalInputDisposable = terminal.onData((data) => {
@@ -419,6 +422,35 @@ function TerminalPane({
         terminal.refresh(0, terminal.rows - 1);
       }
       syncVisualCursor();
+    };
+
+    const drainTerminalOutput = () => {
+      if (disposed) {
+        return;
+      }
+
+      const chunk = pendingTerminalOutput.slice(0, TERMINAL_WRITE_CHUNK_SIZE);
+      pendingTerminalOutput = pendingTerminalOutput.slice(chunk.length);
+      if (!chunk) {
+        writingTerminalOutput = false;
+        terminal.scrollToBottom();
+        refreshTerminal();
+        return;
+      }
+
+      writingTerminalOutput = true;
+      terminal.write(chunk, () => {
+        terminal.scrollToBottom();
+        refreshTerminal();
+        window.requestAnimationFrame(drainTerminalOutput);
+      });
+    };
+
+    const writeTerminalOutput = (data: string) => {
+      pendingTerminalOutput += data;
+      if (!writingTerminalOutput) {
+        drainTerminalOutput();
+      }
     };
 
     const scheduleCursorSync = () => {
@@ -496,10 +528,7 @@ function TerminalPane({
           hasOutput = true;
           setTerminalPhase("ready");
         }
-        terminal.write(message.data, () => {
-          terminal.scrollToBottom();
-          refreshTerminal();
-        });
+        writeTerminalOutput(message.data);
       }
 
       if (message.type === "status") {
@@ -508,7 +537,7 @@ function TerminalPane({
 
       if (message.type === "exit") {
         setTerminalPhase("ready");
-        terminal.writeln(`\r\n[OpenCozy session exited: ${message.exitCode}]`);
+        writeTerminalOutput(`\r\n[OpenCozy session exited: ${message.exitCode}]\r\n`);
       }
     });
     socket.addEventListener("close", (event) => {

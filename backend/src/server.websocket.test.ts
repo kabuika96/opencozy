@@ -234,11 +234,7 @@ describe("OpenCozy session WebSocket route", () => {
   });
 
   it("updates a resume picker session title to the Codex session selected after launch", async () => {
-    const fixture = makeTestCodexBin([
-      "process.stdout.write('sessions ready\\n');",
-      "setInterval(() => process.stdout.write('tick\\n'), 80);",
-      "process.stdin.resume();"
-    ]);
+    const fixture = makeTestCodexBin(["process.stdin.resume();"]);
     const codexStateDbPath = createCodexStateDb(fixture.cwd);
     insertCodexThread(codexStateDbPath, {
       id: "stale-thread",

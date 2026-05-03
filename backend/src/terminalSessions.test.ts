@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTerminalEnv, sendSerializedMessage } from "./terminalSessions.js";
+import { buildTerminalEnv, sendSerializedMessage, splitTerminalOutput } from "./terminalSessions.js";
 
 describe("terminal session environment", () => {
   it("forces a color-capable terminal environment for Codex PTYs", () => {
@@ -27,6 +27,14 @@ describe("terminal session environment", () => {
 });
 
 describe("terminal session socket delivery", () => {
+  it("splits large terminal output into bounded WebSocket payloads", () => {
+    const chunks = splitTerminalOutput("x".repeat(150_000));
+
+    expect(chunks.join("")).toHaveLength(150_000);
+    expect(chunks).toHaveLength(3);
+    expect(chunks.every((chunk) => chunk.length <= 64_000)).toBe(true);
+  });
+
   it("treats a send failure as a closed socket instead of throwing", () => {
     const socket = {
       OPEN: 1,
@@ -37,5 +45,21 @@ describe("terminal session socket delivery", () => {
     };
 
     expect(sendSerializedMessage(socket, "{}")).toBe(false);
+  });
+
+  it("reports async send callback errors without throwing", () => {
+    let reported = false;
+    const socket = {
+      OPEN: 1,
+      readyState: 1,
+      send: (_payload: string, callback: (error?: Error) => void) => {
+        callback(new Error("socket closed"));
+      }
+    };
+
+    expect(sendSerializedMessage(socket, "{}", () => {
+      reported = true;
+    })).toBe(true);
+    expect(reported).toBe(true);
   });
 });

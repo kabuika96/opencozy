@@ -5,6 +5,8 @@ OpenCozy can be supervised locally with two macOS LaunchAgents:
 - `com.opencozy.backend.dev` runs `npm run dev --workspace backend` on port `8788`.
 - `com.opencozy.frontend.dev` runs `npm run dev --workspace frontend` on port `5175`.
 
+The backend dev command intentionally does not watch source files. Restarting the backend kills active Codex PTYs and makes Codex report an interrupted conversation. Use `npm run dev:backend:watch` only when no live OpenCozy Codex session needs to survive backend file edits.
+
 The agents use `KeepAlive`, so launchd restarts them after crashes, process kills, or login. The foreground `npm run dev` command is still useful while actively developing, but do not run it at the same time as these services because both paths use the same default ports.
 
 Install the LaunchAgent plists:

@@ -12,6 +12,8 @@ import type { OpenCozySessionMode, OpenCozySessionSummary } from "./types.js";
 
 const HISTORY_LIMIT = 200_000;
 const CODEX_THREAD_SYNC_INTERVAL_MS = 1_000;
+const OUTPUT_FLUSH_DELAY_MS = 24;
+const OUTPUT_FRAME_LIMIT = 64_000;
 
 type ClientMessage =
   | { type: "input"; data: string }
@@ -30,17 +32,29 @@ function serialize(message: unknown): string {
 
 type SendableWebSocket = Pick<WebSocket, "readyState" | "OPEN" | "send">;
 
-export function sendSerializedMessage(socket: SendableWebSocket, payload: string): boolean {
+export function sendSerializedMessage(socket: SendableWebSocket, payload: string, onError?: () => void): boolean {
   if (socket.readyState !== socket.OPEN) {
     return false;
   }
 
   try {
-    socket.send(payload);
+    socket.send(payload, (error) => {
+      if (error) {
+        onError?.();
+      }
+    });
     return true;
   } catch {
     return false;
   }
+}
+
+export function splitTerminalOutput(output: string): string[] {
+  const chunks: string[] = [];
+  for (let index = 0; index < output.length; index += OUTPUT_FRAME_LIMIT) {
+    chunks.push(output.slice(index, index + OUTPUT_FRAME_LIMIT));
+  }
+  return chunks;
 }
 
 function parseClientMessage(raw: WebSocket.RawData): ClientMessage | null {
@@ -120,10 +134,13 @@ class OpenCozyPtySession {
   private readonly clients = new Set<WebSocket>();
   private readonly codexThreadStore: CodexThreadStore | null;
   private readonly ptyProcess: IPty;
+  private codexThreadSyncTimer: ReturnType<typeof setInterval> | null = null;
   private codexThreadId: string | null = null;
   private history = "";
   private lastCodexThreadSyncAt = 0;
   private name: string;
+  private outputFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingOutput = "";
   private pendingCodexTitle: string | null = null;
   private status: "running" | "exited" = "running";
   private userRenamed = false;
@@ -163,15 +180,21 @@ class OpenCozyPtySession {
 
     this.ptyProcess.onData((data) => {
       this.appendHistory(data);
-      this.broadcast({ type: "output", data });
+      this.queueOutput(data);
     });
 
     this.ptyProcess.onExit(({ exitCode }) => {
+      this.flushOutput();
+      this.stopCodexThreadSync();
       this.status = "exited";
       this.exitCode = exitCode;
       this.touch();
       this.broadcast({ type: "exit", exitCode });
     });
+
+    if (this.codexThreadStore && this.mode === "resume") {
+      this.startCodexThreadSync();
+    }
   }
 
   summary(): OpenCozySessionSummary {
@@ -212,7 +235,7 @@ class OpenCozyPtySession {
     }
 
     if (this.history.length > 0) {
-      if (!this.sendToClient(socket, { type: "output", data: this.history })) {
+      if (!this.sendOutputToClient(socket, this.history)) {
         return;
       }
     }
@@ -247,9 +270,14 @@ class OpenCozyPtySession {
     socket.on("close", () => {
       this.clients.delete(socket);
     });
+    socket.on("error", () => {
+      this.clients.delete(socket);
+    });
   }
 
   kill(): void {
+    this.flushOutput();
+    this.stopCodexThreadSync();
     if (this.status === "running") {
       this.ptyProcess.kill();
     }
@@ -266,25 +294,102 @@ class OpenCozyPtySession {
     }
   }
 
+  private queueOutput(data: string): void {
+    this.pendingOutput += data;
+    if (this.outputFlushTimer) {
+      return;
+    }
+
+    this.outputFlushTimer = setTimeout(() => {
+      this.flushOutput();
+    }, OUTPUT_FLUSH_DELAY_MS);
+    this.outputFlushTimer.unref?.();
+  }
+
+  private flushOutput(): void {
+    if (this.outputFlushTimer) {
+      clearTimeout(this.outputFlushTimer);
+      this.outputFlushTimer = null;
+    }
+
+    const output = this.pendingOutput;
+    if (!output) {
+      return;
+    }
+    this.pendingOutput = "";
+
+    this.broadcastOutput(output);
+  }
+
   private broadcast(message: unknown): void {
     const payload = serialize(message);
     for (const client of this.clients) {
-      if (!sendSerializedMessage(client, payload)) {
+      if (!sendSerializedMessage(client, payload, () => this.clients.delete(client))) {
         this.clients.delete(client);
       }
     }
   }
 
   private sendToClient(client: WebSocket, message: unknown): boolean {
-    const sent = sendSerializedMessage(client, serialize(message));
+    const sent = sendSerializedMessage(client, serialize(message), () => this.clients.delete(client));
     if (!sent) {
       this.clients.delete(client);
     }
     return sent;
   }
 
+  private broadcastOutput(output: string): void {
+    for (const chunk of splitTerminalOutput(output)) {
+      this.broadcast({ type: "output", data: chunk });
+    }
+  }
+
+  private sendOutputToClient(client: WebSocket, output: string): boolean {
+    for (const chunk of splitTerminalOutput(output)) {
+      if (!this.sendToClient(client, { type: "output", data: chunk })) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private broadcastStatus(): void {
     this.broadcast({ type: "status", session: this.toSummary() });
+  }
+
+  private startCodexThreadSync(): void {
+    if (this.codexThreadSyncTimer) {
+      return;
+    }
+
+    this.codexThreadSyncTimer = setInterval(() => {
+      if (this.status !== "running") {
+        this.stopCodexThreadSync();
+        return;
+      }
+
+      if (this.syncCodexThreadTitle()) {
+        this.broadcastStatus();
+      }
+
+      if (this.isCodexThreadSyncSettled()) {
+        this.stopCodexThreadSync();
+      }
+    }, CODEX_THREAD_SYNC_INTERVAL_MS);
+    this.codexThreadSyncTimer.unref?.();
+  }
+
+  private stopCodexThreadSync(): void {
+    if (!this.codexThreadSyncTimer) {
+      return;
+    }
+
+    clearInterval(this.codexThreadSyncTimer);
+    this.codexThreadSyncTimer = null;
+  }
+
+  private isCodexThreadSyncSettled(): boolean {
+    return this.mode === "resume" && Boolean(this.codexThreadId) && !this.pendingCodexTitle && this.name !== defaultSessionName(this.mode);
   }
 
   private syncCodexThreadTitle(options: { force?: boolean } = {}): boolean {
@@ -300,7 +405,7 @@ class OpenCozyPtySession {
 
     const previousName = this.name;
     const previousThreadId = this.codexThreadId;
-    const shouldDiscoverThread = !this.codexThreadId || (this.mode === "resume" && !this.userRenamed);
+    const shouldDiscoverThread = !this.codexThreadId || (this.mode === "resume" && !this.userRenamed && this.name === defaultSessionName(this.mode));
     const thread = !shouldDiscoverThread && this.codexThreadId
       ? this.codexThreadStore.getThread(this.codexThreadId)
       : this.codexThreadStore.findActiveThread(this.cwd, this.createdAtMs);

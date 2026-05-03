@@ -26,6 +26,7 @@
     "deps": "npm install",
     "dev": "node scripts/dev.mjs",
     "dev:backend": "npm run dev -w backend",
+    "dev:backend:watch": "npm run dev:watch -w backend",
     "dev:frontend": "npm run dev -w frontend",
     "services:install": "scripts/opencozy-services.sh install",
     "services:start": "scripts/opencozy-services.sh start",
