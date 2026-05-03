@@ -20,7 +20,7 @@ type ClientMessage =
 
 const DEFAULT_SESSION_NAME: Record<OpenCozySessionMode, string> = {
   new: "Codex",
-  resume: "History",
+  resume: "Sessions",
   resumeLast: "Last Session"
 };
 
@@ -126,6 +126,7 @@ class OpenCozyPtySession {
   private name: string;
   private pendingCodexTitle: string | null = null;
   private status: "running" | "exited" = "running";
+  private userRenamed = false;
   private exitCode: number | null = null;
   private updatedAt: string;
 
@@ -141,6 +142,7 @@ class OpenCozyPtySession {
     this.id = randomUUID();
     this.name = input.name || defaultSessionName(input.mode);
     this.pendingCodexTitle = input.name || null;
+    this.userRenamed = Boolean(input.name);
     this.codexThreadStore = codexThreadStore;
     this.mode = input.mode;
     this.cwd = resolveCwd(config, input.cwd);
@@ -196,6 +198,7 @@ class OpenCozyPtySession {
   rename(input: RenameOpenCozySessionInput): OpenCozySessionSummary {
     this.name = input.name;
     this.pendingCodexTitle = input.name;
+    this.userRenamed = true;
     this.syncCodexThreadTitle({ force: true });
     this.touch();
     this.broadcastStatus();
@@ -297,9 +300,10 @@ class OpenCozyPtySession {
 
     const previousName = this.name;
     const previousThreadId = this.codexThreadId;
-    const thread = this.codexThreadId
+    const shouldDiscoverThread = !this.codexThreadId || (this.mode === "resume" && !this.userRenamed);
+    const thread = !shouldDiscoverThread && this.codexThreadId
       ? this.codexThreadStore.getThread(this.codexThreadId)
-      : this.codexThreadStore.findActiveThread(this.cwd, this.createdAtMs - 5_000);
+      : this.codexThreadStore.findActiveThread(this.cwd, this.createdAtMs);
 
     if (!thread) {
       return false;

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { getSessionLoadingCopy } from "./sessionLoading";
 
 describe("session loading copy", () => {
-  it("uses Resume Picker language while opening history", () => {
+  it("uses Resume Picker language while opening sessions", () => {
     expect(getSessionLoadingCopy("resume", "initializing")).toEqual({
-      title: "Opening History",
+      title: "Opening Sessions",
       detail: "Starting the Resume Picker."
     });
   });

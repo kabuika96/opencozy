@@ -12,7 +12,7 @@ import {
   Check,
   ExternalLink,
   Feather,
-  History,
+  List,
   Menu,
   Plus,
   Save,
@@ -760,7 +760,7 @@ export default function App() {
 
     const name = sessionTitleDraft.trim();
     if (!name) {
-      setError("Session name is required.");
+      setError("Session title is required.");
       return;
     }
 
@@ -866,8 +866,8 @@ export default function App() {
                 <span>Start New</span>
               </button>
               <button type="button" onClick={() => void startSession("resume")} disabled={busy}>
-                <History size={18} />
-                <span>History</span>
+                <List size={18} />
+                <span>Sessions</span>
               </button>
               <button type="button" onClick={openAddApp}>
                 <Save size={18} />

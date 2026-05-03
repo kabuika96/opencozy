@@ -51,6 +51,14 @@ function createCodexStateDb(dir: string): string {
   return dbPath;
 }
 
+function insertCodexThread(dbPath: string, input: { id: string; title: string; cwd: string; updatedAtMs: number }): void {
+  const db = new DatabaseSync(dbPath);
+  db
+    .prepare("INSERT INTO threads (id, title, cwd, created_at, updated_at, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(input.id, input.title, input.cwd, 1, 1, input.updatedAtMs, input.updatedAtMs);
+  db.close();
+}
+
 async function waitForSessionExit(server: ReturnType<typeof buildServer>, id: string): Promise<void> {
   const deadline = Date.now() + 1_000;
 
@@ -195,11 +203,12 @@ describe("OpenCozy session WebSocket route", () => {
     const session = createResponse.json<{ id: string; name: string }>();
 
     const createdAtMs = Date.now();
-    const db = new DatabaseSync(codexStateDbPath);
-    db
-      .prepare("INSERT INTO threads (id, title, cwd, created_at, updated_at, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run("thread-1", "Old Codex Title", fixture.cwd, 1, 1, createdAtMs, createdAtMs);
-    db.close();
+    insertCodexThread(codexStateDbPath, {
+      id: "thread-1",
+      title: "Old Codex Title",
+      cwd: fixture.cwd,
+      updatedAtMs: createdAtMs
+    });
 
     const renameResponse = await server.inject({
       method: "PUT",
@@ -217,6 +226,89 @@ describe("OpenCozy session WebSocket route", () => {
     const verifyDb = new DatabaseSync(codexStateDbPath);
     expect(verifyDb.prepare("SELECT title FROM threads WHERE id = ?").get("thread-1")).toEqual({ title: "Release Checklist" });
     verifyDb.close();
+
+    await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}`
+    });
+  });
+
+  it("updates a resume picker session title to the Codex session selected after launch", async () => {
+    const fixture = makeTestCodexBin([
+      "process.stdout.write('sessions ready\\n');",
+      "setInterval(() => process.stdout.write('tick\\n'), 80);",
+      "process.stdin.resume();"
+    ]);
+    const codexStateDbPath = createCodexStateDb(fixture.cwd);
+    insertCodexThread(codexStateDbPath, {
+      id: "stale-thread",
+      title: "Stale Session",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.now() - 10_000
+    });
+
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      codexStateDbPath
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      payload: {
+        mode: "resume",
+        cwd: fixture.cwd
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const session = createResponse.json<{ id: string; name: string; codexThreadId: string | null }>();
+    expect(session).toMatchObject({ name: "Sessions", codexThreadId: null });
+
+    const selectedTitle = new Promise<{ name: string; codexThreadId: string | null }>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Session title did not update after resume selection")), 3_000);
+      let insertedSelectedThread = false;
+
+      void server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {}, {
+        onInit: (socket) => {
+          socket.on("message", (data) => {
+            const parsed = JSON.parse(data.toString()) as {
+              type: string;
+              session?: { name: string; codexThreadId: string | null };
+            };
+            if (parsed.type !== "status" || !parsed.session) {
+              return;
+            }
+
+            if (parsed.session.name === "Sessions" && !insertedSelectedThread) {
+              insertedSelectedThread = true;
+              insertCodexThread(codexStateDbPath, {
+                id: "selected-thread",
+                title: "Selected Session",
+                cwd: fixture.cwd,
+                updatedAtMs: Date.now() + 1
+              });
+            }
+
+            if (parsed.session.name === "Selected Session") {
+              clearTimeout(timeout);
+              resolve(parsed.session);
+            }
+          });
+        }
+      });
+    });
+
+    await expect(selectedTitle).resolves.toMatchObject({
+      name: "Selected Session",
+      codexThreadId: "selected-thread"
+    });
 
     await server.inject({
       method: "DELETE",

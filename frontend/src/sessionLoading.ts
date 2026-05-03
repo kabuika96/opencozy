@@ -18,7 +18,7 @@ export function getSessionLoadingCopy(mode: OpenCozySessionMode, phase: SessionL
   if (phase === "waitingForOutput") {
     if (mode === "resume") {
       return {
-        title: "Waiting for History",
+        title: "Waiting for Sessions",
         detail: "Codex is preparing the Resume Picker."
       };
     }
@@ -38,7 +38,7 @@ export function getSessionLoadingCopy(mode: OpenCozySessionMode, phase: SessionL
 
   if (mode === "resume") {
     return {
-      title: "Opening History",
+      title: "Opening Sessions",
       detail: "Starting the Resume Picker."
     };
   }

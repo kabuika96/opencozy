@@ -42,4 +42,17 @@ describe("Codex thread store", () => {
     expect(store.updateTitle("thread-1", "Renamed")).toBe(true);
     expect(store.getThread("thread-1")).toEqual({ id: "thread-1", title: "Renamed" });
   });
+
+  it("ignores threads that were only updated before the OpenCozy session started", () => {
+    const dbPath = createStateDb();
+    const db = new DatabaseSync(dbPath);
+    db
+      .prepare("INSERT INTO threads (id, title, cwd, created_at, updated_at, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("thread-1", "Old title", "/work", 1, 1, 1_000, 1_500);
+    db.close();
+
+    const store = new CodexThreadStore(dbPath);
+
+    expect(store.findActiveThread("/work", 2_000)).toBeNull();
+  });
 });
