@@ -233,6 +233,140 @@ describe("OpenCozy session WebSocket route", () => {
     });
   });
 
+  it("does not attach a new OpenCozy session to an unrelated active Codex thread title", async () => {
+    const fixture = makeTestCodexBin();
+    const codexStateDbPath = createCodexStateDb(fixture.cwd);
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      codexStateDbPath
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      payload: {
+        mode: "new",
+        cwd: fixture.cwd,
+        codexThreadId: "other-device-thread",
+        deviceId: "device-2"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const session = createResponse.json<{ id: string; name: string; codexThreadId: string | null; deviceId: string | null }>();
+    expect(session).toMatchObject({ name: "Codex", codexThreadId: null, deviceId: "device-2" });
+
+    insertCodexThread(codexStateDbPath, {
+      id: "other-device-thread",
+      title: "Other Device Session",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.now() + 10_000
+    });
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/api/open-cozy-sessions"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json<Array<{ id: string; name: string; codexThreadId: string | null }>>()).toContainEqual(
+      expect.objectContaining({
+        id: session.id,
+        name: "Codex",
+        codexThreadId: null
+      })
+    );
+
+    await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}`
+    });
+  });
+
+  it("does not use global Codex --last for resume-last sessions without a device-scoped thread", async () => {
+    const fixture = makeTestCodexBin();
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      payload: {
+        mode: "resumeLast",
+        cwd: fixture.cwd
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const session = createResponse.json<{ id: string; args: string[] }>();
+    expect(session.args).not.toContain("--last");
+    expect(session.args).toEqual(expect.arrayContaining(["resume", "-C", fixture.cwd]));
+
+    await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}`
+    });
+  });
+
+  it("uses the device-scoped Codex thread id for resume-last sessions when provided", async () => {
+    const fixture = makeTestCodexBin();
+    const codexStateDbPath = createCodexStateDb(fixture.cwd);
+    insertCodexThread(codexStateDbPath, {
+      id: "device-thread",
+      title: "Device Session",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.now()
+    });
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      codexStateDbPath
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      payload: {
+        mode: "resumeLast",
+        cwd: fixture.cwd,
+        codexThreadId: "device-thread",
+        deviceId: "device-1"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const session = createResponse.json<{ id: string; args: string[]; codexThreadId: string | null; deviceId: string | null; name: string }>();
+    expect(session.args).not.toContain("--last");
+    expect(session.args).toEqual(expect.arrayContaining(["resume", "device-thread", "-C", fixture.cwd]));
+    expect(session).toMatchObject({
+      codexThreadId: "device-thread",
+      deviceId: "device-1",
+      name: "Device Session"
+    });
+
+    await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}`
+    });
+  });
+
   it("updates a resume picker session title to the Codex session selected after launch", async () => {
     const fixture = makeTestCodexBin(["process.stdin.resume();"]);
     const codexStateDbPath = createCodexStateDb(fixture.cwd);

@@ -35,12 +35,37 @@ describe("API requests", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await createOpenCozySession("new", { cwd: "/tmp/opencozy-workspace", name: "Workspace" });
+    await createOpenCozySession("new", { cwd: "/tmp/opencozy-workspace", deviceId: "device-1", name: "Workspace" });
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const headers = init?.headers as Headers;
     expect(headers.get("Content-Type")).toBe("application/json");
-    expect(init.body).toBe(JSON.stringify({ mode: "new", cwd: "/tmp/opencozy-workspace", name: "Workspace" }));
+    expect(init.body).toBe(JSON.stringify({ mode: "new", cwd: "/tmp/opencozy-workspace", deviceId: "device-1", name: "Workspace" }));
+  });
+
+  it("can request a device-scoped Codex thread for resume-last", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        id: "session-1",
+        name: "Last Session",
+        codexThreadId: "thread-1",
+        deviceId: "device-1",
+        mode: "resumeLast",
+        command: "codex",
+        args: [],
+        cwd: "/home/opencozy",
+        status: "running",
+        exitCode: null,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createOpenCozySession("resumeLast", { codexThreadId: "thread-1", deviceId: "device-1" });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.body).toBe(JSON.stringify({ mode: "resumeLast", codexThreadId: "thread-1", deviceId: "device-1" }));
   });
 
   it("lets the backend use its configured default Codex cwd", async () => {

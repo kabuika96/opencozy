@@ -26,6 +26,7 @@ export type OpenCozySessionSummary = {
   id: string;
   name: string;
   codexThreadId: string | null;
+  deviceId: string | null;
   mode: OpenCozySessionMode;
   command: string;
   args: string[];

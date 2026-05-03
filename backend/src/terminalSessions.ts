@@ -98,13 +98,13 @@ function resolveCwd(config: OpenCozyConfig, requested: string | undefined): stri
   return cwd;
 }
 
-function commandArgs(mode: OpenCozySessionMode, cwd: string): string[] {
+function commandArgs(mode: OpenCozySessionMode, cwd: string, codexThreadId?: string): string[] {
   if (mode === "new") {
     return ["-C", cwd];
   }
 
   if (mode === "resumeLast") {
-    return ["resume", "--last", "-C", cwd];
+    return codexThreadId ? ["resume", codexThreadId, "-C", cwd] : ["resume", "-C", cwd];
   }
 
   return ["resume", "-C", cwd];
@@ -159,6 +159,7 @@ class OpenCozyPtySession {
   readonly cwd: string;
   readonly createdAt: string;
   readonly createdAtMs: number;
+  readonly deviceId: string | null;
 
   constructor(config: OpenCozyConfig, input: CreateOpenCozySessionInput, codexThreadStore: CodexThreadStore | null) {
     this.id = randomUUID();
@@ -167,10 +168,13 @@ class OpenCozyPtySession {
     this.userRenamed = Boolean(input.name);
     this.codexThreadStore = codexThreadStore;
     this.mode = input.mode;
+    this.deviceId = input.deviceId || null;
+    const requestedCodexThreadId = input.mode === "resumeLast" ? input.codexThreadId : undefined;
+    this.codexThreadId = requestedCodexThreadId || null;
     this.cwd = resolveCwd(config, input.cwd);
     const launch = resolveCodexLaunch(config.codexBin);
     this.command = launch.command;
-    this.args = [...launch.argsPrefix, ...commandArgs(input.mode, this.cwd)];
+    this.args = [...launch.argsPrefix, ...commandArgs(input.mode, this.cwd, requestedCodexThreadId)];
     this.createdAtMs = Date.now();
     this.createdAt = new Date(this.createdAtMs).toISOString();
     this.updatedAt = this.createdAt;
@@ -197,7 +201,7 @@ class OpenCozyPtySession {
       this.broadcast({ type: "exit", exitCode });
     });
 
-    if (this.codexThreadStore && this.mode === "resume") {
+    if (this.codexThreadStore && (this.mode === "resume" || this.mode === "resumeLast")) {
       this.startCodexThreadSync();
     }
   }
@@ -212,6 +216,7 @@ class OpenCozyPtySession {
       id: this.id,
       name: this.name,
       codexThreadId: this.codexThreadId,
+      deviceId: this.deviceId,
       mode: this.mode,
       command: this.command,
       args: this.args,
@@ -395,11 +400,11 @@ class OpenCozyPtySession {
   }
 
   private isCodexThreadSyncSettled(): boolean {
-    return this.mode === "resume" && Boolean(this.codexThreadId) && !this.pendingCodexTitle && this.name !== defaultSessionName(this.mode);
+    return (this.mode === "resume" || this.mode === "resumeLast") && Boolean(this.codexThreadId) && !this.pendingCodexTitle && this.name !== defaultSessionName(this.mode);
   }
 
   private markResumePickerActivity(data: string): void {
-    if (this.mode !== "resume" || this.codexThreadId || !hasLineSubmission(data)) {
+    if ((this.mode !== "resume" && this.mode !== "resumeLast") || this.codexThreadId || !hasLineSubmission(data)) {
       return;
     }
 
@@ -421,7 +426,11 @@ class OpenCozyPtySession {
     const previousName = this.name;
     const previousThreadId = this.codexThreadId;
     const shouldDiscoverThread = !this.codexThreadId || (this.mode === "resume" && !this.userRenamed && this.name === defaultSessionName(this.mode));
-    const discoverySinceMs = this.mode === "resume" ? this.resumePickerConfirmedAtMs : this.createdAtMs;
+    if (shouldDiscoverThread && this.mode === "new" && !this.pendingCodexTitle) {
+      return false;
+    }
+    const isResumePickerDiscovery = (this.mode === "resume" || this.mode === "resumeLast") && !this.codexThreadId;
+    const discoverySinceMs = isResumePickerDiscovery ? this.resumePickerConfirmedAtMs : this.createdAtMs;
     if (shouldDiscoverThread && discoverySinceMs === null) {
       return false;
     }

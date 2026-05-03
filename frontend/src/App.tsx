@@ -66,6 +66,8 @@ type TerminalMessage =
   | { type: "exit"; exitCode: number };
 
 const LAST_SESSION_KEY = "opencozy.lastOpenCozySessionId";
+const DEVICE_ID_KEY = "opencozy.deviceId";
+const LAST_CODEX_THREAD_KEY = "opencozy.lastCodexThreadId";
 const SESSION_NAME_MAX_LENGTH = 80;
 const TERMINAL_WRITE_CHUNK_SIZE = 32_000;
 const ARROW_KEYS = {
@@ -102,6 +104,32 @@ const defaultForm = (): AppForm => ({
   port: "5173",
   path: "/"
 });
+
+function createDeviceId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `device-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getDeviceId(): string {
+  const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+  if (existing) {
+    return existing;
+  }
+
+  const deviceId = createDeviceId();
+  window.localStorage.setItem(DEVICE_ID_KEY, deviceId);
+  return deviceId;
+}
+
+function rememberSession(session: OpenCozySessionSummary): void {
+  window.localStorage.setItem(LAST_SESSION_KEY, session.id);
+  if (session.codexThreadId) {
+    window.localStorage.setItem(LAST_CODEX_THREAD_KEY, session.codexThreadId);
+  }
+}
 
 function toAppInput(form: AppForm): AppShortcutInput {
   const port = Number(form.port);
@@ -680,6 +708,7 @@ function TerminalPane({
 
 export default function App() {
   const shellRef = useRef<HTMLElement | null>(null);
+  const [deviceId] = useState(getDeviceId);
   const [sessions, setSessions] = useState<OpenCozySessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [apps, setApps] = useState<AppShortcut[]>([]);
@@ -759,10 +788,14 @@ export default function App() {
     setOverlay(null);
 
     try {
-      const session = await createOpenCozySession(mode);
+      const lastCodexThreadId = mode === "resumeLast" ? window.localStorage.getItem(LAST_CODEX_THREAD_KEY) : null;
+      const session = await createOpenCozySession(mode, {
+        deviceId,
+        ...(lastCodexThreadId ? { codexThreadId: lastCodexThreadId } : {})
+      });
       setSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
       setActiveSessionId(session.id);
-      window.localStorage.setItem(LAST_SESSION_KEY, session.id);
+      rememberSession(session);
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : "Failed to start Codex");
     } finally {
@@ -824,6 +857,9 @@ export default function App() {
 
   const handleSessionUpdate = useCallback((updated: OpenCozySessionSummary) => {
     setSessions((current) => current.map((session) => (session.id === updated.id ? updated : session)));
+    if (updated.id === activeSessionIdRef.current) {
+      rememberSession(updated);
+    }
   }, []);
 
   const editApp = (app: AppShortcut) => {

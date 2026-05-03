@@ -67,6 +67,8 @@ export function parseAppShortcutInput(body: unknown): ParseResult<AppShortcutInp
 
 export type CreateOpenCozySessionInput = {
   mode: OpenCozySessionMode;
+  codexThreadId?: string;
+  deviceId?: string;
   name?: string;
   cwd?: string;
 };
@@ -98,10 +100,20 @@ export function parseCreateOpenCozySessionInput(body: unknown): ParseResult<Crea
     }
   }
 
+  if (body.codexThreadId !== undefined && (typeof body.codexThreadId !== "string" || body.codexThreadId.trim().length === 0)) {
+    return { ok: false, message: "codexThreadId must be a non-empty string when provided" };
+  }
+
+  if (body.deviceId !== undefined && (typeof body.deviceId !== "string" || body.deviceId.trim().length === 0)) {
+    return { ok: false, message: "deviceId must be a non-empty string when provided" };
+  }
+
   return {
     ok: true,
     value: {
       mode: body.mode,
+      codexThreadId: typeof body.codexThreadId === "string" ? body.codexThreadId.trim() : undefined,
+      deviceId: typeof body.deviceId === "string" ? body.deviceId.trim() : undefined,
       name: typeof body.name === "string" ? body.name.trim() : undefined,
       cwd: typeof body.cwd === "string" ? body.cwd.trim() : undefined
     }

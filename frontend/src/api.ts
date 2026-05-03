@@ -7,7 +7,9 @@ import type {
 } from "./types";
 
 export type CreateOpenCozySessionOptions = {
+  codexThreadId?: string;
   cwd?: string;
+  deviceId?: string;
   name?: string;
 };
 
@@ -51,7 +53,9 @@ export function createOpenCozySession(mode: OpenCozySessionMode, options: Create
     method: "POST",
     body: JSON.stringify({
       mode,
+      ...(options.codexThreadId ? { codexThreadId: options.codexThreadId } : {}),
       ...(options.cwd ? { cwd: options.cwd } : {}),
+      ...(options.deviceId ? { deviceId: options.deviceId } : {}),
       ...(options.name ? { name: options.name } : {})
     })
   });
