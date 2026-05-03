@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTerminalEnv, sendSerializedMessage, splitTerminalOutput } from "./terminalSessions.js";
+import { buildTerminalEnv, extractResumePickerSelectionText, sendSerializedMessage, splitTerminalOutput } from "./terminalSessions.js";
 
 describe("terminal session environment", () => {
   it("forces a color-capable terminal environment for Codex PTYs", () => {
@@ -61,5 +61,15 @@ describe("terminal session socket delivery", () => {
       reported = true;
     })).toBe(true);
     expect(reported).toBe(true);
+  });
+});
+
+describe("resume picker selection parsing", () => {
+  it("extracts the highlighted picker row from ANSI reverse-video output", () => {
+    expect(extractResumePickerSelectionText("old\r\n\u001b[7m  Selected Session   /work  \u001b[0m\r\nnext")).toBe("Selected Session /work");
+  });
+
+  it("falls back to visible selected row markers when reverse-video output is absent", () => {
+    expect(extractResumePickerSelectionText("  Other Session\r\n\u203a Selected Session\r\n")).toBe("\u203a Selected Session");
   });
 });

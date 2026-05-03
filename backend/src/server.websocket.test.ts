@@ -457,6 +457,87 @@ describe("OpenCozy session WebSocket route", () => {
     });
   });
 
+  it("updates a resume picker session title immediately from the selected terminal row", async () => {
+    const fixture = makeTestCodexBin([
+      "process.stdout.write('\\x1b[7m  Selected Session   /work  \\x1b[0m\\r\\n');",
+      "process.stdin.resume();"
+    ]);
+    const codexStateDbPath = createCodexStateDb(fixture.cwd);
+    insertCodexThread(codexStateDbPath, {
+      id: "selected-thread",
+      title: "Selected Session",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.now() - 10_000
+    });
+    insertCodexThread(codexStateDbPath, {
+      id: "unrelated-active-thread",
+      title: "Unrelated Active Session",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.now() + 10_000
+    });
+
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      codexStateDbPath
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      payload: {
+        mode: "resume",
+        cwd: fixture.cwd
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const session = createResponse.json<{ id: string; name: string; codexThreadId: string | null }>();
+    expect(session).toMatchObject({ name: "Sessions", codexThreadId: null });
+
+    const selectedTitle = new Promise<{ name: string; codexThreadId: string | null }>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Session title did not update from selected terminal row")), 3_000);
+      let confirmedResumePicker = false;
+
+      void server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {}, {
+        onInit: (socket) => {
+          socket.on("message", (data) => {
+            const parsed = JSON.parse(data.toString()) as {
+              type: string;
+              data?: string;
+              session?: { name: string; codexThreadId: string | null };
+            };
+
+            if (parsed.type === "output" && parsed.data?.includes("Selected Session") && !confirmedResumePicker) {
+              confirmedResumePicker = true;
+              socket.send(JSON.stringify({ type: "input", data: "\r" }));
+            }
+
+            if (parsed.type === "status" && parsed.session?.name === "Selected Session") {
+              clearTimeout(timeout);
+              resolve(parsed.session);
+            }
+          });
+        }
+      });
+    });
+
+    await expect(selectedTitle).resolves.toMatchObject({
+      name: "Selected Session",
+      codexThreadId: "selected-thread"
+    });
+
+    await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}`
+    });
+  });
+
   it("starts Codex sessions with a color-capable terminal environment", async () => {
     vi.stubEnv("TERM", "dumb");
     vi.stubEnv("COLORTERM", "");

@@ -55,4 +55,20 @@ describe("Codex thread store", () => {
 
     expect(store.findActiveThread("/work", 2_000)).toBeNull();
   });
+
+  it("matches a thread title from visible resume picker text even when the timestamp is old", () => {
+    const dbPath = createStateDb();
+    const db = new DatabaseSync(dbPath);
+    db
+      .prepare("INSERT INTO threads (id, title, cwd, created_at, updated_at, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("thread-1", "Selected Session", "/work", 1, 1, 1_000, 1_500);
+    db
+      .prepare("INSERT INTO threads (id, title, cwd, created_at, updated_at, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("thread-2", "Other Session", "/work", 1, 1, 1_000, 5_000);
+    db.close();
+
+    const store = new CodexThreadStore(dbPath);
+
+    expect(store.findThreadInText("/work", "\u203a Selected Session /work")).toEqual({ id: "thread-1", title: "Selected Session" });
+  });
 });

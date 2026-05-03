@@ -46,6 +46,37 @@ export class CodexThreadStore {
     });
   }
 
+  findThreadInText(cwd: string, text: string): CodexThreadSummary | null {
+    const normalizedText = normalizeTitleMatchText(text);
+    if (!normalizedText) {
+      return null;
+    }
+
+    return this.read((db) => {
+      const rows = db
+        .prepare(`
+          SELECT id, title
+          FROM threads
+          WHERE archived = 0
+            AND cwd = ?
+            AND title != ''
+          ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC,
+            COALESCE(created_at_ms, created_at * 1000) DESC
+          LIMIT 100
+        `)
+        .all(cwd) as CodexThreadRow[];
+
+      for (const row of rows) {
+        const title = row.title || "";
+        if (titleMatchesText(title, normalizedText)) {
+          return { id: row.id, title };
+        }
+      }
+
+      return null;
+    });
+  }
+
   updateTitle(id: string, title: string): boolean {
     return this.write((db) => {
       const result = db.prepare("UPDATE threads SET title = ? WHERE id = ?").run(title, id);
@@ -82,4 +113,22 @@ export class CodexThreadStore {
       db.close();
     }
   }
+}
+
+function normalizeTitleMatchText(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function titleMatchesText(title: string, normalizedText: string): boolean {
+  const normalizedTitle = normalizeTitleMatchText(title);
+  if (!normalizedTitle) {
+    return false;
+  }
+
+  if (normalizedText.includes(normalizedTitle)) {
+    return true;
+  }
+
+  const titlePrefix = normalizedTitle.slice(0, Math.min(normalizedTitle.length, 32));
+  return titlePrefix.length >= 12 && normalizedText.includes(titlePrefix);
 }

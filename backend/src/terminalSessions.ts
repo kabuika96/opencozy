@@ -14,6 +14,13 @@ const HISTORY_LIMIT = 200_000;
 const CODEX_THREAD_SYNC_INTERVAL_MS = 1_000;
 const OUTPUT_FLUSH_DELAY_MS = 24;
 const OUTPUT_FRAME_LIMIT = 64_000;
+/* eslint-disable no-control-regex -- ANSI terminal parsing intentionally matches control sequences. */
+const CSI_PATTERN = new RegExp("\\u001b\\[[0-?]*[ -/]*[@-~]", "g");
+const OSC_PATTERN = new RegExp("\\u001b\\][^\\u0007]*(?:\\u0007|\\u001b\\\\)", "g");
+const CONTROL_PATTERN = new RegExp("[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]", "g");
+const SGR_PATTERN = new RegExp("\\u001b\\[([0-9;]*)m", "g");
+/* eslint-enable no-control-regex */
+const PICKER_ROW_MARKER_PATTERN = /^(?:>|\u203a|\u276f)\s*/;
 
 type ClientMessage =
   | { type: "input"; data: string }
@@ -116,6 +123,67 @@ function defaultSessionName(mode: OpenCozySessionMode): string {
 
 function hasLineSubmission(data: string): boolean {
   return data.includes("\r") || data.includes("\n");
+}
+
+function stripAnsiControl(text: string): string {
+  return text
+    .replace(CSI_PATTERN, "")
+    .replace(OSC_PATTERN, "")
+    .replace(CONTROL_PATTERN, "");
+}
+
+function isReverseSgr(params: string): boolean {
+  return params.split(";").some((part) => part === "7");
+}
+
+function isReverseResetSgr(params: string): boolean {
+  return params === "" || params.split(";").some((part) => part === "0" || part === "27");
+}
+
+export function extractResumePickerSelectionText(output: string): string | null {
+  const tail = output.slice(-50_000);
+  const selectedSegments: string[] = [];
+  let selected = "";
+  let reverse = false;
+  let index = 0;
+  let match: RegExpExecArray | null;
+
+  SGR_PATTERN.lastIndex = 0;
+  while ((match = SGR_PATTERN.exec(tail)) !== null) {
+    if (reverse) {
+      selected += tail.slice(index, match.index);
+    }
+
+    const params = match[1] || "";
+    if (isReverseSgr(params)) {
+      reverse = true;
+    } else if (isReverseResetSgr(params)) {
+      if (selected.trim()) {
+        selectedSegments.push(selected);
+      }
+      selected = "";
+      reverse = false;
+    }
+
+    index = match.index + match[0].length;
+  }
+
+  if (reverse) {
+    selected += tail.slice(index);
+  }
+  if (selected.trim()) {
+    selectedSegments.push(selected);
+  }
+
+  for (const segment of selectedSegments.reverse()) {
+    const text = stripAnsiControl(segment).replace(/\s+/g, " ").trim();
+    if (text) {
+      return text;
+    }
+  }
+
+  const lines = stripAnsiControl(tail).split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+  return lines.reverse().find((line) => PICKER_ROW_MARKER_PATTERN.test(line)) || null;
 }
 
 export function buildTerminalEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -263,7 +331,9 @@ class OpenCozyPtySession {
       }
 
       if (message.type === "input" && this.status === "running") {
-        this.markResumePickerActivity(message.data);
+        if (this.markResumePickerActivity(message.data)) {
+          this.broadcastStatus();
+        }
         this.ptyProcess.write(message.data);
         this.touch();
       }
@@ -403,13 +473,35 @@ class OpenCozyPtySession {
     return (this.mode === "resume" || this.mode === "resumeLast") && Boolean(this.codexThreadId) && !this.pendingCodexTitle && this.name !== defaultSessionName(this.mode);
   }
 
-  private markResumePickerActivity(data: string): void {
+  private markResumePickerActivity(data: string): boolean {
     if ((this.mode !== "resume" && this.mode !== "resumeLast") || this.codexThreadId || !hasLineSubmission(data)) {
-      return;
+      return false;
     }
 
     this.resumePickerConfirmedAtMs = Date.now();
     this.lastCodexThreadSyncAt = 0;
+    return this.syncResumePickerSelectionFromHistory();
+  }
+
+  private syncResumePickerSelectionFromHistory(): boolean {
+    if (!this.codexThreadStore) {
+      return false;
+    }
+
+    const selectionText = extractResumePickerSelectionText(this.history);
+    const selectedThread = selectionText ? this.codexThreadStore.findThreadInText(this.cwd, selectionText) : null;
+    if (!selectedThread) {
+      return false;
+    }
+
+    const previousName = this.name;
+    const previousThreadId = this.codexThreadId;
+    this.codexThreadId = selectedThread.id;
+    if (!this.userRenamed && selectedThread.title) {
+      this.name = selectedThread.title;
+    }
+    this.touch();
+    return previousName !== this.name || previousThreadId !== this.codexThreadId;
   }
 
   private syncCodexThreadTitle(options: { force?: boolean } = {}): boolean {
