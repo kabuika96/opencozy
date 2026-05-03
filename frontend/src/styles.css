@@ -355,18 +355,7 @@ button:disabled {
   z-index: 20;
 }
 
-.floatingTerminalControls {
-  bottom: calc(212px + var(--oc-safe-bottom, 0px));
-  display: grid;
-  gap: 14px;
-  pointer-events: auto;
-  position: absolute;
-  right: calc(8px + var(--oc-safe-right, 0px));
-  z-index: 35;
-}
-
 .terminalControlButton,
-.bottomFocusButton,
 .arrowPadButton {
   background: var(--oc-control-bg);
   border: 1px solid var(--oc-control-border);
@@ -379,9 +368,42 @@ button:disabled {
   width: 40px;
 }
 
-.terminalControlButton:active,
-.bottomFocusButton:active {
+.terminalControlButton:active {
   background: var(--oc-control-active-bg);
+}
+
+.terminalComposeZone {
+  align-items: flex-end;
+  background:
+    radial-gradient(ellipse at 50% 86%, rgb(143 208 165 / 0.055), transparent 58%),
+    linear-gradient(to top, rgb(15 21 17 / 0.07), transparent 66%);
+  border: 0;
+  border-radius: 0;
+  bottom: 0;
+  color: rgb(241 245 239 / 0.2);
+  display: flex;
+  height: calc(202px + var(--oc-safe-bottom, 0px));
+  justify-content: center;
+  left: 0;
+  min-height: 0;
+  padding: 0 0 calc(16px + var(--oc-safe-bottom, 0px));
+  pointer-events: auto;
+  position: absolute;
+  right: 0;
+  touch-action: manipulation;
+  width: auto;
+  z-index: 30;
+}
+
+.terminalComposeZone svg {
+  opacity: 0.36;
+}
+
+.terminalComposeZone:active {
+  background:
+    radial-gradient(ellipse at 50% 86%, rgb(143 208 165 / 0.105), transparent 58%),
+    linear-gradient(to top, rgb(47 111 88 / 0.105), transparent 66%);
+  color: rgb(241 245 239 / 0.3);
 }
 
 .terminalFollowButton {
@@ -620,7 +642,6 @@ button:disabled {
     max-width: 48vw;
   }
 
-  .floatingTerminalControls,
   .arrowPad {
     right: calc(6px + var(--oc-safe-right, 0px));
   }

@@ -627,11 +627,9 @@ function TerminalPane({
             <ChevronDown size={20} />
           </button>
         )}
-        <div className="floatingTerminalControls">
-          <button type="button" className="terminalControlButton bottomFocusButton terminalControlButton--keyboard" onMouseDown={(event) => event.preventDefault()} onClick={focusKeyboard} aria-label="Scroll to bottom and focus input">
-            <Feather size={19} />
-          </button>
-        </div>
+        <button type="button" className="terminalComposeZone" onMouseDown={(event) => event.preventDefault()} onClick={focusKeyboard} aria-label="Scroll to bottom and focus input">
+          <Feather size={18} />
+        </button>
         <div className="arrowPad" aria-label="Terminal arrow keys">
           <button type="button" className="arrowPadButton arrowPadUp" onMouseDown={(event) => event.preventDefault()} onClick={() => sendInput(ARROW_KEYS.up)} aria-label="Up">
             <ArrowUp size={19} />
