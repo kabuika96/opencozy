@@ -216,6 +216,17 @@ button:disabled {
   touch-action: none;
 }
 
+.terminalVisualCursor {
+  background: #8fd0a5;
+  box-shadow: 0 0 8px rgb(143 208 165 / 0.65);
+  display: none;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  z-index: 24;
+}
+
 .terminalLoadingState {
   align-items: center;
   color: #c8d3cc;

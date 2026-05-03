@@ -34,6 +34,7 @@ import { bindKeyboardReserve } from "./keyboardReserve";
 import { bindOuterScrollLock } from "./outerScrollLock";
 import { getSessionLoadingCopy, type SessionLoadingCopy, type SessionLoadingPhase } from "./sessionLoading";
 import { bindTerminalTouchScroll } from "./terminalTouchScroll";
+import { getTerminalVisualCursorStyle } from "./terminalVisualCursor";
 import type {
   AppShortcut,
   AppShortcutInput,
@@ -149,8 +150,46 @@ function TerminalPane({
   const keyboardInputRef = useRef<HTMLTextAreaElement | null>(null);
   const touchLayerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
+  const visualCursorRef = useRef<HTMLDivElement | null>(null);
   const composingRef = useRef(false);
   const [terminalPhase, setTerminalPhase] = useState<TerminalPhase>("connecting");
+
+  const syncVisualCursor = useCallback(() => {
+    const cursor = visualCursorRef.current;
+    const element = elementRef.current;
+    const terminal = terminalRef.current;
+    const screen = element?.querySelector<HTMLElement>(".xterm-screen");
+    if (!cursor || !element || !terminal || !screen) {
+      return;
+    }
+
+    const buffer = terminal.buffer.active;
+    const hostRect = element.getBoundingClientRect();
+    const screenRect = screen.getBoundingClientRect();
+    const style = getTerminalVisualCursorStyle({
+      baseY: buffer.baseY,
+      cols: terminal.cols,
+      cursorX: buffer.cursorX,
+      cursorY: buffer.cursorY,
+      hostLeft: hostRect.left,
+      hostTop: hostRect.top,
+      rows: terminal.rows,
+      screenHeight: screenRect.height,
+      screenLeft: screenRect.left,
+      screenTop: screenRect.top,
+      screenWidth: screenRect.width,
+      viewportY: buffer.viewportY
+    });
+
+    cursor.style.display = style.display;
+    if (style.display === "none") {
+      return;
+    }
+
+    cursor.style.height = style.height;
+    cursor.style.transform = style.transform;
+    cursor.style.width = style.width;
+  }, []);
 
   const focusKeyboard = useCallback(() => {
     const terminal = terminalRef.current;
@@ -158,8 +197,9 @@ function TerminalPane({
     if (terminal && terminal.rows > 0) {
       terminal.refresh(0, terminal.rows - 1);
     }
+    syncVisualCursor();
     keyboardInputRef.current?.focus({ preventScroll: true });
-  }, []);
+  }, [syncVisualCursor]);
 
   const sendInput = useCallback((data: string): boolean => {
     const socket = socketRef.current;
@@ -282,7 +322,18 @@ function TerminalPane({
       if (terminal.rows > 0) {
         terminal.refresh(0, terminal.rows - 1);
       }
+      syncVisualCursor();
     };
+
+    const scheduleCursorSync = () => {
+      window.requestAnimationFrame(syncVisualCursor);
+    };
+
+    const cursorMoveDisposable = terminal.onCursorMove(scheduleCursorSync);
+    const renderDisposable = terminal.onRender(scheduleCursorSync);
+    const scrollDisposable = terminal.onScroll(scheduleCursorSync);
+    const writeParsedDisposable = terminal.onWriteParsed(scheduleCursorSync);
+
     const fitAndSendResize = () => {
       resizeFrame = null;
       if (disposed) {
@@ -374,6 +425,7 @@ function TerminalPane({
     });
 
     scheduleResize();
+    scheduleCursorSync();
 
     return () => {
       disposed = true;
@@ -382,6 +434,10 @@ function TerminalPane({
       }
       cleanupTouchScroll();
       terminalInputDisposable.dispose();
+      cursorMoveDisposable.dispose();
+      renderDisposable.dispose();
+      scrollDisposable.dispose();
+      writeParsedDisposable.dispose();
       resizeObserver.disconnect();
       window.removeEventListener("focus", restoreTerminalFrame);
       window.removeEventListener("pageshow", restoreTerminalFrame);
@@ -401,7 +457,7 @@ function TerminalPane({
         terminalRef.current = null;
       }
     };
-  }, [focusKeyboard, onSessionUpdate, session.id]);
+  }, [focusKeyboard, onSessionUpdate, session.id, syncVisualCursor]);
 
   return (
     <>
@@ -426,6 +482,7 @@ function TerminalPane({
           onKeyDown={handleKeyboardKeyDown}
         />
         <div className="terminalSurface" ref={elementRef} />
+        <div className="terminalVisualCursor" ref={visualCursorRef} aria-hidden="true" />
         {terminalPhase !== "ready" && (
           <SessionLoadingState
             copy={getSessionLoadingCopy(session.mode, terminalPhase)}
