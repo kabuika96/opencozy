@@ -384,6 +384,18 @@ button:disabled {
   background: var(--oc-control-active-bg);
 }
 
+.terminalFollowButton {
+  align-items: center;
+  bottom: calc(14px + var(--oc-safe-bottom, 0px));
+  display: flex;
+  justify-content: center;
+  left: 50%;
+  pointer-events: auto;
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 36;
+}
+
 .arrowPad {
   bottom: calc(10px + var(--oc-safe-bottom, 0px));
   display: grid;

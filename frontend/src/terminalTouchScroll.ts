@@ -1,5 +1,8 @@
 type TouchScrollHost = Pick<HTMLElement, "addEventListener" | "removeEventListener" | "querySelector">;
 type TouchScrollTarget = Pick<HTMLElement, "addEventListener" | "removeEventListener">;
+type TouchScrollOptions = {
+  onUserScroll?: () => void;
+};
 
 const MOMENTUM_MIN_VELOCITY = 0.18;
 const MOMENTUM_STOP_VELOCITY = 0.015;
@@ -47,7 +50,8 @@ function containTouchMove(event: TouchEvent): void {
 export function bindTerminalTouchScroll(
   target: TouchScrollTarget,
   hostOrFocus?: TouchScrollHost | (() => void),
-  focusTerminal?: () => void
+  focusTerminal?: () => void,
+  options: TouchScrollOptions = {}
 ): () => void {
   const host = typeof hostOrFocus === "function" || hostOrFocus === undefined ? (target as TouchScrollHost) : hostOrFocus;
   const focus = typeof hostOrFocus === "function" ? hostOrFocus : focusTerminal;
@@ -144,7 +148,11 @@ export function bindTerminalTouchScroll(
 
     const previousScrollTop = viewport.scrollTop;
     viewport.scrollTop += delta;
-    velocity = viewport.scrollTop === previousScrollTop ? 0 : delta / elapsed;
+    const didScroll = viewport.scrollTop !== previousScrollTop;
+    velocity = didScroll ? delta / elapsed : 0;
+    if (didScroll) {
+      options.onUserScroll?.();
+    }
     containTouchMove(event);
   };
 

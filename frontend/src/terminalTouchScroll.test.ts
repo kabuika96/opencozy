@@ -81,6 +81,31 @@ describe("terminal touch scrolling", () => {
     cleanup();
   });
 
+  it("notifies when a touch drag scrolls the terminal viewport", () => {
+    const viewport = new FakeViewport();
+    const host = new FakeTerminalHost(viewport);
+    const touchLayer = new FakeTouchLayer();
+    let userScrollCount = 0;
+
+    const cleanup = bindTerminalTouchScroll(
+      touchLayer as unknown as HTMLElement,
+      host as unknown as HTMLElement,
+      undefined,
+      {
+        onUserScroll: () => {
+          userScrollCount++;
+        }
+      }
+    );
+
+    touchLayer.dispatchEvent(touchEvent("touchstart", 220));
+    touchLayer.dispatchEvent(touchEvent("touchmove", 172));
+
+    expect(userScrollCount).toBe(1);
+
+    cleanup();
+  });
+
   it("focuses only after a completed tap on the terminal layer", () => {
     const viewport = new FakeViewport();
     const host = new FakeTerminalHost(viewport);

@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  ChevronDown,
   CornerDownLeft,
   ExternalLink,
   Feather,
@@ -181,7 +182,9 @@ function TerminalPane({
   const terminalRef = useRef<Terminal | null>(null);
   const visualCursorRef = useRef<HTMLDivElement | null>(null);
   const composingRef = useRef(false);
+  const followBottomRef = useRef(true);
   const [terminalPhase, setTerminalPhase] = useState<TerminalPhase>("connecting");
+  const [followBottomPaused, setFollowBottomPaused] = useState(false);
 
   const syncVisualCursor = useCallback(() => {
     const cursor = visualCursorRef.current;
@@ -220,15 +223,31 @@ function TerminalPane({
     cursor.style.width = style.width;
   }, []);
 
-  const focusKeyboard = useCallback(() => {
+  const pauseFollowBottom = useCallback(() => {
+    if (!followBottomRef.current) {
+      return;
+    }
+
+    followBottomRef.current = false;
+    setFollowBottomPaused(true);
+  }, []);
+
+  const resumeFollowBottom = useCallback(() => {
+    followBottomRef.current = true;
+    setFollowBottomPaused(false);
+
     const terminal = terminalRef.current;
     terminal?.scrollToBottom();
     if (terminal && terminal.rows > 0) {
       terminal.refresh(0, terminal.rows - 1);
     }
     syncVisualCursor();
-    keyboardInputRef.current?.focus({ preventScroll: true });
   }, [syncVisualCursor]);
+
+  const focusKeyboard = useCallback(() => {
+    resumeFollowBottom();
+    keyboardInputRef.current?.focus({ preventScroll: true });
+  }, [resumeFollowBottom]);
 
   const sendInput = useCallback((data: string): boolean => {
     const socket = socketRef.current;
@@ -297,6 +316,11 @@ function TerminalPane({
   }, [session.id]);
 
   useEffect(() => {
+    followBottomRef.current = true;
+    setFollowBottomPaused(false);
+  }, [session.id]);
+
+  useEffect(() => {
     const element = elementRef.current;
     const touchLayer = touchLayerRef.current;
     if (!element || !touchLayer) {
@@ -332,8 +356,8 @@ function TerminalPane({
     terminal.loadAddon(fitAddon);
     terminal.open(element);
     terminalRef.current = terminal;
+    const viewport = element.querySelector<HTMLElement>(".xterm-viewport");
     let scheduleResize = () => undefined;
-    const cleanupTouchScroll = bindTerminalTouchScroll(touchLayer, element);
 
     let disposed = false;
     let resizeFrame: number | null = null;
@@ -355,6 +379,56 @@ function TerminalPane({
       }
       syncVisualCursor();
     };
+    const isAtBottom = () => {
+      if (!viewport) {
+        return terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
+      }
+
+      return viewport.scrollTop >= viewport.scrollHeight - viewport.clientHeight - 2;
+    };
+    const pauseFollowBottomAfterUserScroll = () => {
+      if (!isAtBottom()) {
+        pauseFollowBottom();
+      }
+    };
+    const scrollToBottomIfFollowing = () => {
+      if (followBottomRef.current) {
+        terminal.scrollToBottom();
+      }
+    };
+    const cleanupTouchScroll = bindTerminalTouchScroll(touchLayer, element, undefined, {
+      onUserScroll: pauseFollowBottomAfterUserScroll
+    });
+    const handleWheelScroll = (event: WheelEvent) => {
+      if (!viewport) {
+        if (event.deltaY < 0 || !isAtBottom()) {
+          pauseFollowBottom();
+        }
+        return;
+      }
+
+      const deltaY = event.deltaMode === 1
+        ? event.deltaY * 16
+        : event.deltaMode === 2
+          ? event.deltaY * viewport.clientHeight
+          : event.deltaY;
+      const previousScrollTop = viewport.scrollTop;
+      viewport.scrollTop += deltaY;
+
+      if (viewport.scrollTop !== previousScrollTop) {
+        pauseFollowBottomAfterUserScroll();
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+        event.stopPropagation();
+        return;
+      }
+
+      if (event.deltaY < 0 || !isAtBottom()) {
+        pauseFollowBottom();
+      }
+    };
+    touchLayer.addEventListener("wheel", handleWheelScroll, { passive: false });
 
     const drainTerminalOutput = () => {
       if (disposed) {
@@ -365,14 +439,14 @@ function TerminalPane({
       pendingTerminalOutput = pendingTerminalOutput.slice(chunk.length);
       if (!chunk) {
         writingTerminalOutput = false;
-        terminal.scrollToBottom();
+        scrollToBottomIfFollowing();
         refreshTerminal();
         return;
       }
 
       writingTerminalOutput = true;
       terminal.write(chunk, () => {
-        terminal.scrollToBottom();
+        scrollToBottomIfFollowing();
         refreshTerminal();
         window.requestAnimationFrame(drainTerminalOutput);
       });
@@ -426,7 +500,7 @@ function TerminalPane({
       }
 
       scheduleResize();
-      terminal.scrollToBottom();
+      scrollToBottomIfFollowing();
       window.requestAnimationFrame(refreshTerminal);
     };
 
@@ -490,6 +564,7 @@ function TerminalPane({
         window.cancelAnimationFrame(resizeFrame);
       }
       cleanupTouchScroll();
+      touchLayer.removeEventListener("wheel", handleWheelScroll);
       terminalInputDisposable.dispose();
       cursorMoveDisposable.dispose();
       renderDisposable.dispose();
@@ -514,7 +589,7 @@ function TerminalPane({
         terminalRef.current = null;
       }
     };
-  }, [onSessionUpdate, session.id, syncVisualCursor]);
+  }, [onSessionUpdate, pauseFollowBottom, session.id, syncVisualCursor]);
 
   return (
     <>
@@ -547,6 +622,11 @@ function TerminalPane({
           />
         )}
         <div className="terminalTouchLayer" ref={touchLayerRef} aria-hidden="true" />
+        {followBottomPaused && (
+          <button type="button" className="terminalControlButton terminalFollowButton" onMouseDown={(event) => event.preventDefault()} onClick={resumeFollowBottom} aria-label="Follow latest output">
+            <ChevronDown size={20} />
+          </button>
+        )}
         <div className="floatingTerminalControls">
           <button type="button" className="terminalControlButton bottomFocusButton terminalControlButton--keyboard" onMouseDown={(event) => event.preventDefault()} onClick={focusKeyboard} aria-label="Scroll to bottom and focus input">
             <Feather size={19} />
