@@ -15,6 +15,8 @@ For normal development, frontend changes update through Vite/HMR, but backend ch
 npm run services:restart
 ```
 
+Agents must ask the user for explicit permission before running that restart or any equivalent backend stop, kill, unload, or replacement command. A backend restart kills active OpenCozy/Codex sessions even when the restart is intentional.
+
 Do not change the durable backend service back to `tsx watch` or another auto-restarting watcher. Use `npm run dev:backend:watch` only for backend-only work when no live OpenCozy Codex session needs to survive file edits.
 
 The agents use `KeepAlive`, so launchd restarts them after crashes, process kills, or login. The foreground `npm run dev` command is still useful while actively developing, but do not run it at the same time as these services because both paths use the same default ports.
