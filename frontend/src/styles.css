@@ -374,9 +374,12 @@ button:disabled {
 
 .terminalComposeZone {
   align-items: flex-end;
-  background:
-    radial-gradient(ellipse at 50% 86%, rgb(143 208 165 / 0.055), transparent 58%),
-    linear-gradient(to top, rgb(15 21 17 / 0.07), transparent 66%);
+  background: linear-gradient(
+    to top,
+    rgb(143 208 165 / 0.052),
+    rgb(143 208 165 / 0.026) 44%,
+    transparent 74%
+  );
   border: 0;
   border-radius: 0;
   bottom: 0;
@@ -400,9 +403,12 @@ button:disabled {
 }
 
 .terminalComposeZone:active {
-  background:
-    radial-gradient(ellipse at 50% 86%, rgb(143 208 165 / 0.105), transparent 58%),
-    linear-gradient(to top, rgb(47 111 88 / 0.105), transparent 66%);
+  background: linear-gradient(
+    to top,
+    rgb(143 208 165 / 0.092),
+    rgb(143 208 165 / 0.044) 44%,
+    transparent 74%
+  );
   color: rgb(241 245 239 / 0.3);
 }
 
