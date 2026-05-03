@@ -98,8 +98,6 @@ button:disabled {
 }
 
 .iconButton {
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   background: var(--oc-control-bg);
   border: 1px solid var(--oc-control-border);
   color: var(--oc-control-fg);
@@ -325,8 +323,6 @@ button:disabled {
 }
 
 .bottomFocusButton {
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   background: var(--oc-control-bg);
   border: 1px solid var(--oc-control-border);
   color: var(--oc-control-fg);
@@ -400,8 +396,6 @@ button:disabled {
 
 .terminalPlaceholder button,
 .primaryButton {
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   background: var(--oc-control-bg);
   border: 1px solid var(--oc-control-border);
   color: rgb(241 245 239 / 0.86);
