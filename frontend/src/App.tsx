@@ -8,9 +8,9 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  ChevronDown,
   ChevronRight,
   ExternalLink,
+  Feather,
   List,
   Menu,
   Plus,
@@ -623,7 +623,7 @@ function TerminalPane({
         <div className="terminalTouchLayer" ref={touchLayerRef} aria-hidden="true" />
         {followBottomPaused && (
           <button type="button" className="terminalControlButton terminalFollowButton" onMouseDown={(event) => event.preventDefault()} onClick={resumeFollowBottom} aria-label="Follow latest output">
-            <ChevronDown size={20} />
+            <Feather size={19} />
           </button>
         )}
         <button type="button" className="terminalComposeZone" onMouseDown={(event) => event.preventDefault()} onClick={focusKeyboard} aria-label="Scroll to bottom and focus input" />
