@@ -8,8 +8,8 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  ClipboardCopy,
   ClipboardPaste,
+  Check,
   ExternalLink,
   Feather,
   History,
@@ -36,7 +36,7 @@ import { buildLaunchUrl, normalizeAppPath } from "./appUrls";
 import { bindKeyboardReserve } from "./keyboardReserve";
 import { bindOuterScrollLock } from "./outerScrollLock";
 import { getSessionLoadingCopy, type SessionLoadingCopy, type SessionLoadingPhase } from "./sessionLoading";
-import { normalizeTerminalInput, readTerminalBufferText } from "./terminalClipboard";
+import { normalizeTerminalInput } from "./terminalClipboard";
 import { bindTerminalTouchScroll } from "./terminalTouchScroll";
 import { getTerminalVisualCursorStyle } from "./terminalVisualCursor";
 import type {
@@ -132,36 +132,6 @@ async function readTextFromClipboard(): Promise<string | null> {
   }
 }
 
-async function writeTextToClipboard(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Fall back to the legacy copy path below for HTTP LAN installs.
-    }
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.readOnly = true;
-  textarea.style.left = "-9999px";
-  textarea.style.opacity = "0";
-  textarea.style.position = "fixed";
-  textarea.style.top = "0";
-  document.body.appendChild(textarea);
-
-  try {
-    textarea.focus({ preventScroll: true });
-    textarea.select();
-    return document.execCommand("copy");
-  } catch {
-    return false;
-  } finally {
-    textarea.remove();
-  }
-}
-
 function SessionLoadingState({
   copy,
   overlay = false
@@ -197,6 +167,7 @@ function TerminalPane({
   const terminalRef = useRef<Terminal | null>(null);
   const visualCursorRef = useRef<HTMLDivElement | null>(null);
   const composingRef = useRef(false);
+  const [pasteConfirmOpen, setPasteConfirmOpen] = useState(false);
   const [pastePanelOpen, setPastePanelOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [terminalPhase, setTerminalPhase] = useState<TerminalPhase>("connecting");
@@ -264,28 +235,21 @@ function TerminalPane({
   }, [onError, sendInput]);
 
   const closePastePanel = useCallback(() => {
+    setPasteConfirmOpen(false);
     setPastePanelOpen(false);
     setPasteText("");
   }, []);
 
-  const handleCopyTerminalOutput = useCallback(async () => {
-    const terminal = terminalRef.current;
-    if (!terminal) {
-      return;
-    }
+  const closePasteConfirmation = useCallback(() => {
+    setPasteConfirmOpen(false);
+  }, []);
 
-    const text = readTerminalBufferText(terminal.buffer.active);
-    if (!text) {
-      return;
-    }
+  const openPasteConfirmation = useCallback(() => {
+    setPasteConfirmOpen(true);
+  }, []);
 
-    const copied = await writeTextToClipboard(text);
-    if (!copied) {
-      onError("Clipboard copy is unavailable in this browser.");
-    }
-  }, [onError]);
-
-  const handlePasteFromClipboard = useCallback(async () => {
+  const handleConfirmPaste = useCallback(async () => {
+    setPasteConfirmOpen(false);
     const text = await readTextFromClipboard();
     if (text === null) {
       setPastePanelOpen(true);
@@ -361,6 +325,20 @@ function TerminalPane({
 
     return bindKeyboardReserve(input);
   }, [session.id]);
+
+  useEffect(() => {
+    if (!pasteConfirmOpen) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setPasteConfirmOpen(false);
+    }, 2600);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [pasteConfirmOpen]);
 
   useEffect(() => {
     if (!pastePanelOpen) {
@@ -630,13 +608,23 @@ function TerminalPane({
           </div>
         )}
         <div className="floatingTerminalControls">
-          <button type="button" className="terminalControlButton" onMouseDown={(event) => event.preventDefault()} onClick={() => void handleCopyTerminalOutput()} aria-label="Copy terminal output">
-            <ClipboardCopy size={18} />
-          </button>
-          <button type="button" className="terminalControlButton" onMouseDown={(event) => event.preventDefault()} onClick={() => void handlePasteFromClipboard()} aria-label="Paste to terminal">
-            <ClipboardPaste size={18} />
-          </button>
-          <button type="button" className="terminalControlButton bottomFocusButton" onMouseDown={(event) => event.preventDefault()} onClick={focusKeyboard} aria-label="Scroll to bottom and focus input">
+          <div className="terminalPasteControl">
+            {pasteConfirmOpen && (
+              <div className="terminalPasteConfirm" role="group" aria-label="Confirm paste">
+                <span>Paste?</span>
+                <button type="button" className="terminalControlButton terminalControlButton--small" onMouseDown={(event) => event.preventDefault()} onClick={() => void handleConfirmPaste()} aria-label="Confirm paste">
+                  <Check size={16} />
+                </button>
+                <button type="button" className="terminalControlButton terminalControlButton--small" onMouseDown={(event) => event.preventDefault()} onClick={closePasteConfirmation} aria-label="Cancel paste">
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+            <button type="button" className="terminalControlButton" onMouseDown={(event) => event.preventDefault()} onClick={openPasteConfirmation} aria-label="Paste to terminal">
+              <ClipboardPaste size={18} />
+            </button>
+          </div>
+          <button type="button" className="terminalControlButton bottomFocusButton terminalControlButton--keyboard" onMouseDown={(event) => event.preventDefault()} onClick={focusKeyboard} aria-label="Scroll to bottom and focus input">
             <Feather size={19} />
           </button>
         </div>
