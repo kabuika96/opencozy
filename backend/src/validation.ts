@@ -71,6 +71,10 @@ export type CreateOpenCozySessionInput = {
   cwd?: string;
 };
 
+export type RenameOpenCozySessionInput = {
+  name: string;
+};
+
 export function parseCreateOpenCozySessionInput(body: unknown): ParseResult<CreateOpenCozySessionInput> {
   if (!isRecord(body)) {
     return { ok: false, message: "Expected a JSON object" };
@@ -102,4 +106,21 @@ export function parseCreateOpenCozySessionInput(body: unknown): ParseResult<Crea
       cwd: typeof body.cwd === "string" ? body.cwd.trim() : undefined
     }
   };
+}
+
+export function parseRenameOpenCozySessionInput(body: unknown): ParseResult<RenameOpenCozySessionInput> {
+  if (!isRecord(body)) {
+    return { ok: false, message: "Expected a JSON object" };
+  }
+
+  const name = parseString(body.name, "name");
+  if (!name.ok) {
+    return name;
+  }
+
+  if (name.value.length > SESSION_NAME_MAX_LENGTH) {
+    return { ok: false, message: `name must be ${SESSION_NAME_MAX_LENGTH} characters or fewer` };
+  }
+
+  return { ok: true, value: { name: name.value } };
 }

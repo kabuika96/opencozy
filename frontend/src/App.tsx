@@ -30,7 +30,8 @@ import {
   getCodexCapabilities,
   listApps,
   listOpenCozySessions,
-  updateApp
+  updateApp,
+  updateOpenCozySession
 } from "./api";
 import { buildLaunchUrl, normalizeAppPath } from "./appUrls";
 import { bindKeyboardReserve } from "./keyboardReserve";
@@ -56,7 +57,7 @@ type AppForm = {
   path: string;
 };
 
-type Overlay = "addApp" | "nameSession" | "openApp" | null;
+type Overlay = "addApp" | "editSessionTitle" | "openApp" | null;
 type TerminalPhase = Exclude<SessionLoadingPhase, "initializing"> | "ready";
 
 type TerminalMessage =
@@ -119,22 +120,6 @@ function toAppInput(form: AppForm): AppShortcutInput {
 function wsUrl(sessionId: string): string {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://${window.location.host}/api/open-cozy-sessions/${sessionId}/socket`;
-}
-
-function defaultSessionName(mode: OpenCozySessionMode): string {
-  const label: Record<OpenCozySessionMode, string> = {
-    new: "New Session",
-    resume: "History",
-    resumeLast: "Last Session"
-  };
-  const timestamp = new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short"
-  }).format(new Date());
-
-  return `${label[mode]} ${timestamp}`;
 }
 
 async function readTextFromClipboard(): Promise<string | null> {
@@ -674,8 +659,7 @@ export default function App() {
   const [loadingInitialData, setLoadingInitialData] = useState(true);
   const [busy, setBusy] = useState(false);
   const [pendingSessionMode, setPendingSessionMode] = useState<OpenCozySessionMode | null>(null);
-  const [sessionNameMode, setSessionNameMode] = useState<OpenCozySessionMode>("new");
-  const [sessionNameDraft, setSessionNameDraft] = useState("");
+  const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const activeSessionIdRef = useRef<string | null>(null);
@@ -738,7 +722,7 @@ export default function App() {
     };
   }, [refresh]);
 
-  const startSession = async (mode: OpenCozySessionMode, name?: string) => {
+  const startSession = async (mode: OpenCozySessionMode) => {
     setBusy(true);
     setPendingSessionMode(mode);
     setError(null);
@@ -746,7 +730,7 @@ export default function App() {
     setOverlay(null);
 
     try {
-      const session = await createOpenCozySession(mode, name ? { name } : {});
+      const session = await createOpenCozySession(mode);
       setSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
       setActiveSessionId(session.id);
       window.localStorage.setItem(LAST_SESSION_KEY, session.id);
@@ -758,22 +742,39 @@ export default function App() {
     }
   };
 
-  const openSessionNamePrompt = (mode: OpenCozySessionMode) => {
+  const openSessionTitleEditor = () => {
+    if (!activeSession) {
+      return;
+    }
+
     setError(null);
     setMenuOpen(false);
-    setSessionNameMode(mode);
-    setSessionNameDraft(defaultSessionName(mode));
-    setOverlay("nameSession");
+    setSessionTitleDraft(activeSession.name);
+    setOverlay("editSessionTitle");
   };
 
-  const submitSessionName = async () => {
-    const name = sessionNameDraft.trim();
+  const saveSessionTitle = async () => {
+    if (!activeSession) {
+      return;
+    }
+
+    const name = sessionTitleDraft.trim();
     if (!name) {
       setError("Session name is required.");
       return;
     }
 
-    await startSession(sessionNameMode, name);
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await updateOpenCozySession(activeSession.id, { name });
+      setSessions((current) => current.map((session) => (session.id === updated.id ? updated : session)));
+      setOverlay(null);
+    } catch (renameError) {
+      setError(renameError instanceof Error ? renameError.message : "Failed to rename session");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const stopActiveSession = async () => {
@@ -860,11 +861,11 @@ export default function App() {
           </button>
           {menuOpen && (
             <nav className="actionMenu" aria-label="OpenCozy menu">
-              <button type="button" onClick={() => openSessionNamePrompt("new")} disabled={busy}>
+              <button type="button" onClick={() => void startSession("new")} disabled={busy}>
                 <Plus size={18} />
                 <span>Start New</span>
               </button>
-              <button type="button" onClick={() => openSessionNamePrompt("resume")} disabled={busy}>
+              <button type="button" onClick={() => void startSession("resume")} disabled={busy}>
                 <History size={18} />
                 <span>History</span>
               </button>
@@ -884,6 +885,12 @@ export default function App() {
           <Square size={16} />
         </button>
       </div>
+
+      {activeSession && (
+        <button className="sessionTitleButton" type="button" onClick={openSessionTitleEditor} aria-label="Edit session title">
+          <span>{activeSession.name}</span>
+        </button>
+      )}
 
       {error && (
         <div className="errorBar">
@@ -909,7 +916,7 @@ export default function App() {
         ) : (
           <div className="terminalPlaceholder">
             <TerminalSquare size={24} />
-            <button type="button" onClick={() => openSessionNamePrompt("new")} disabled={busy}>
+            <button type="button" onClick={() => void startSession("new")} disabled={busy}>
               <Plus size={18} />
               <span>Start New</span>
             </button>
@@ -919,10 +926,10 @@ export default function App() {
 
       {overlay && <button className="scrim" type="button" onClick={() => setOverlay(null)} aria-label="Close panel" />}
 
-      {overlay === "nameSession" && (
-        <section className="sheet sessionNameSheet" data-opencozy-scrollable="true" aria-label="Name OpenCozy session">
+      {overlay === "editSessionTitle" && (
+        <section className="sheet sessionNameSheet" data-opencozy-scrollable="true" aria-label="Edit OpenCozy session title">
           <header className="sheetHeader">
-            <h2>{sessionNameMode === "resume" ? "Open History" : "Start New"}</h2>
+            <h2>Session Title</h2>
             <button className="iconButton small" type="button" onClick={() => setOverlay(null)} aria-label="Close">
               <X size={17} />
             </button>
@@ -931,21 +938,22 @@ export default function App() {
             className="sessionNameForm"
             onSubmit={(event) => {
               event.preventDefault();
-              void submitSessionName();
+              void saveSessionTitle();
             }}
           >
             <label className="field">
-              <span>Session Name</span>
+              <span>Title</span>
               <input
                 autoCapitalize="words"
+                autoFocus
                 maxLength={SESSION_NAME_MAX_LENGTH}
-                value={sessionNameDraft}
-                onChange={(event) => setSessionNameDraft(event.currentTarget.value)}
+                value={sessionTitleDraft}
+                onChange={(event) => setSessionTitleDraft(event.currentTarget.value)}
               />
             </label>
-            <button className="primaryButton" type="submit" disabled={busy || !sessionNameDraft.trim()}>
-              {sessionNameMode === "resume" ? <History size={18} /> : <Plus size={18} />}
-              <span>{sessionNameMode === "resume" ? "Open" : "Start"}</span>
+            <button className="primaryButton" type="submit" disabled={busy || !sessionTitleDraft.trim()}>
+              <Save size={18} />
+              <span>Save</span>
             </button>
           </form>
         </section>

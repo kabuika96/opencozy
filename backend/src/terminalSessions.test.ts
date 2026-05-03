@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTerminalEnv } from "./terminalSessions.js";
+import { buildTerminalEnv, sendSerializedMessage } from "./terminalSessions.js";
 
 describe("terminal session environment", () => {
   it("forces a color-capable terminal environment for Codex PTYs", () => {
@@ -23,5 +23,19 @@ describe("terminal session environment", () => {
       CLICOLOR: "1",
       CLICOLOR_FORCE: "1"
     });
+  });
+});
+
+describe("terminal session socket delivery", () => {
+  it("treats a send failure as a closed socket instead of throwing", () => {
+    const socket = {
+      OPEN: 1,
+      readyState: 1,
+      send: () => {
+        throw new Error("socket closed");
+      }
+    };
+
+    expect(sendSerializedMessage(socket, "{}")).toBe(false);
   });
 });

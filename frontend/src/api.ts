@@ -11,6 +11,10 @@ export type CreateOpenCozySessionOptions = {
   name?: string;
 };
 
+export type RenameOpenCozySessionInput = {
+  name: string;
+};
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body !== undefined && !headers.has("Content-Type")) {
@@ -50,6 +54,13 @@ export function createOpenCozySession(mode: OpenCozySessionMode, options: Create
       ...(options.cwd ? { cwd: options.cwd } : {}),
       ...(options.name ? { name: options.name } : {})
     })
+  });
+}
+
+export function updateOpenCozySession(id: string, input: RenameOpenCozySessionInput): Promise<OpenCozySessionSummary> {
+  return request<OpenCozySessionSummary>(`/api/open-cozy-sessions/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input)
   });
 }
 

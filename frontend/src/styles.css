@@ -127,6 +127,35 @@ button:disabled {
   pointer-events: auto;
 }
 
+.sessionTitleButton {
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: blur(14px) saturate(1.1);
+  background: rgb(15 21 17 / 0.5);
+  border: 1px solid rgb(143 208 165 / 0.16);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.22);
+  color: rgb(241 245 239 / 0.86);
+  font-size: 13px;
+  font-weight: 650;
+  height: 34px;
+  left: 50%;
+  line-height: 1;
+  max-width: min(52vw, 520px);
+  min-height: 34px;
+  overflow: hidden;
+  padding: 0 13px;
+  position: absolute;
+  top: calc(9px + var(--oc-safe-top, 0px));
+  transform: translateX(-50%);
+  z-index: 44;
+}
+
+.sessionTitleButton span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .actionMenu {
   background: rgb(15 21 17 / 0.88);
   border: 1px solid rgb(143 208 165 / 0.22);
@@ -645,6 +674,10 @@ button:disabled {
 }
 
 @media (max-width: 520px) {
+  .sessionTitleButton {
+    max-width: 48vw;
+  }
+
   .floatingTerminalControls,
   .arrowPad {
     right: calc(6px + var(--oc-safe-right, 0px));

@@ -27,6 +27,7 @@ export type OpenCozyConfig = {
   dbPath: string;
   codexBin: string;
   defaultCodexCwd: string;
+  codexStateDbPath?: string;
 };
 
 export function readConfig(): OpenCozyConfig {
@@ -35,6 +36,7 @@ export function readConfig(): OpenCozyConfig {
     port: readPort(process.env.OPENCOZY_PORT),
     dbPath: resolveProjectPath(process.env.OPENCOZY_DB_PATH?.trim() || "data/opencozy.sqlite"),
     codexBin: process.env.OPENCOZY_CODEX_BIN?.trim() || "codex",
-    defaultCodexCwd: process.env.OPENCOZY_CODEX_CWD?.trim() || homedir()
+    defaultCodexCwd: process.env.OPENCOZY_CODEX_CWD?.trim() || homedir(),
+    codexStateDbPath: process.env.OPENCOZY_CODEX_STATE_DB_PATH?.trim() || path.join(process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"), "state_5.sqlite")
   };
 }

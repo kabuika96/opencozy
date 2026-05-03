@@ -5,7 +5,7 @@ import { AppStore } from "./appStore.js";
 import { getCodexCapabilities } from "./codexCli.js";
 import { readConfig, type OpenCozyConfig } from "./config.js";
 import { TerminalSessionManager } from "./terminalSessions.js";
-import { parseAppShortcutInput, parseCreateOpenCozySessionInput } from "./validation.js";
+import { parseAppShortcutInput, parseCreateOpenCozySessionInput, parseRenameOpenCozySessionInput } from "./validation.js";
 
 type RouteParams = {
   id: string;
@@ -99,6 +99,20 @@ export function buildServer(config: OpenCozyConfig = readConfig()) {
       const message = error instanceof Error ? error.message : "Failed to start Codex";
       return reply.code(400).send({ error: message });
     }
+  });
+
+  app.put<{ Params: RouteParams }>("/api/open-cozy-sessions/:id", async (request, reply) => {
+    const parsed = parseRenameOpenCozySessionInput(request.body);
+    if (!parsed.ok) {
+      return reply.code(400).send({ error: parsed.message });
+    }
+
+    const updated = terminalSessions.rename(request.params.id, parsed.value);
+    if (!updated) {
+      return reply.code(404).send({ error: "OpenCozy session not found" });
+    }
+
+    return updated;
   });
 
   app.delete<{ Params: RouteParams }>("/api/open-cozy-sessions/:id", async (request, reply) => {

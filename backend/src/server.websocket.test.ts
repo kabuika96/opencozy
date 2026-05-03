@@ -1,6 +1,7 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildServer } from "./server.js";
 
@@ -29,6 +30,25 @@ function makeTestCodexBin(body: string[] = ["process.stdout.write('fake codex re
     cwd: dir,
     dbPath: path.join(dir, "opencozy.sqlite")
   };
+}
+
+function createCodexStateDb(dir: string): string {
+  const dbPath = path.join(dir, "state_5.sqlite");
+  const db = new DatabaseSync(dbPath);
+  db.exec(`
+    CREATE TABLE threads (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0,
+      created_at_ms INTEGER,
+      updated_at_ms INTEGER
+    );
+  `);
+  db.close();
+  return dbPath;
 }
 
 async function waitForSessionExit(server: ReturnType<typeof buildServer>, id: string): Promise<void> {
@@ -146,6 +166,62 @@ describe("OpenCozy session WebSocket route", () => {
     });
 
     await expect(exitMessage).resolves.toEqual({ type: "exit", exitCode: 7 });
+  });
+
+  it("renames the OpenCozy session and the matching Codex resume title", async () => {
+    const fixture = makeTestCodexBin();
+    const codexStateDbPath = createCodexStateDb(fixture.cwd);
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      codexStateDbPath
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      payload: {
+        mode: "new",
+        cwd: fixture.cwd
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const session = createResponse.json<{ id: string; name: string }>();
+
+    const createdAtMs = Date.now();
+    const db = new DatabaseSync(codexStateDbPath);
+    db
+      .prepare("INSERT INTO threads (id, title, cwd, created_at, updated_at, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("thread-1", "Old Codex Title", fixture.cwd, 1, 1, createdAtMs, createdAtMs);
+    db.close();
+
+    const renameResponse = await server.inject({
+      method: "PUT",
+      url: `/api/open-cozy-sessions/${session.id}`,
+      payload: {
+        name: "Release Checklist"
+      }
+    });
+
+    expect(renameResponse.statusCode).toBe(200);
+    expect(renameResponse.json<{ name: string; codexThreadId: string | null }>()).toMatchObject({
+      name: "Release Checklist",
+      codexThreadId: "thread-1"
+    });
+    const verifyDb = new DatabaseSync(codexStateDbPath);
+    expect(verifyDb.prepare("SELECT title FROM threads WHERE id = ?").get("thread-1")).toEqual({ title: "Release Checklist" });
+    verifyDb.close();
+
+    await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}`
+    });
   });
 
   it("starts Codex sessions with a color-capable terminal environment", async () => {

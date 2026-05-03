@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { closeOpenCozySession, createOpenCozySession } from "./api";
+import { closeOpenCozySession, createOpenCozySession, updateOpenCozySession } from "./api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -22,6 +22,7 @@ describe("API requests", () => {
       Response.json({
         id: "session-1",
         name: "Workspace",
+        codexThreadId: null,
         mode: "new",
         command: "codex",
         args: [],
@@ -47,6 +48,7 @@ describe("API requests", () => {
       Response.json({
         id: "session-1",
         name: "New Session",
+        codexThreadId: null,
         mode: "new",
         command: "codex",
         args: [],
@@ -63,5 +65,33 @@ describe("API requests", () => {
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(init.body).toBe(JSON.stringify({ mode: "new" }));
+  });
+
+  it("updates an OpenCozy session name with JSON content type", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        id: "session-1",
+        name: "PR Review",
+        codexThreadId: "thread-1",
+        mode: "new",
+        command: "codex",
+        args: [],
+        cwd: "/home/opencozy",
+        status: "running",
+        exitCode: null,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await updateOpenCozySession("session-1", { name: "PR Review" });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const headers = init?.headers as Headers;
+    expect(url).toBe("/api/open-cozy-sessions/session-1");
+    expect(init.method).toBe("PUT");
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(init.body).toBe(JSON.stringify({ name: "PR Review" }));
   });
 });
