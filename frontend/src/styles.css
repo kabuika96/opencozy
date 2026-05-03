@@ -398,10 +398,6 @@ button:disabled {
   z-index: 30;
 }
 
-.terminalComposeZone svg {
-  opacity: 0.36;
-}
-
 .terminalComposeZone:active {
   background: linear-gradient(
     to top,

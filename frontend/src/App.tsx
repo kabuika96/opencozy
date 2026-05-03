@@ -11,7 +11,6 @@ import {
   ChevronDown,
   CornerDownLeft,
   ExternalLink,
-  Feather,
   List,
   Menu,
   Plus,
@@ -627,9 +626,7 @@ function TerminalPane({
             <ChevronDown size={20} />
           </button>
         )}
-        <button type="button" className="terminalComposeZone" onMouseDown={(event) => event.preventDefault()} onClick={focusKeyboard} aria-label="Scroll to bottom and focus input">
-          <Feather size={18} />
-        </button>
+        <button type="button" className="terminalComposeZone" onMouseDown={(event) => event.preventDefault()} onClick={focusKeyboard} aria-label="Scroll to bottom and focus input" />
         <div className="arrowPad" aria-label="Terminal arrow keys">
           <button type="button" className="arrowPadButton arrowPadUp" onMouseDown={(event) => event.preventDefault()} onClick={() => sendInput(ARROW_KEYS.up)} aria-label="Up">
             <ArrowUp size={19} />
