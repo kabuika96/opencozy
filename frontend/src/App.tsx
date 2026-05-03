@@ -36,6 +36,7 @@ import { bindKeyboardReserve } from "./keyboardReserve";
 import { bindOuterScrollLock } from "./outerScrollLock";
 import { getSessionLoadingCopy, type SessionLoadingCopy, type SessionLoadingPhase } from "./sessionLoading";
 import { normalizeTerminalInput } from "./terminalClipboard";
+import { createTerminalOutputDrain } from "./terminalOutputDrain";
 import { bindTerminalTouchScroll } from "./terminalTouchScroll";
 import { getTerminalVisualCursorStyle } from "./terminalVisualCursor";
 import type {
@@ -362,9 +363,8 @@ function TerminalPane({
     let resizeFrame: number | null = null;
     let lastSentCols = 0;
     let lastSentRows = 0;
-    let hasOutput = false;
-    let pendingTerminalOutput = "";
-    let writingTerminalOutput = false;
+    let hasReceivedOutput = false;
+    let hasPaintedOutput = false;
     const socket = new WebSocket(wsUrl(session.id));
     socketRef.current = socket;
     const terminalInputDisposable = terminal.onData((data) => {
@@ -395,6 +395,24 @@ function TerminalPane({
         terminal.scrollToBottom();
       }
     };
+    const markTerminalReady = () => {
+      if (disposed || hasPaintedOutput) {
+        return;
+      }
+
+      hasPaintedOutput = true;
+      setTerminalPhase("ready");
+    };
+    const terminalOutputDrain = createTerminalOutputDrain({
+      afterWrite: () => {
+        scrollToBottomIfFollowing();
+        refreshTerminal();
+      },
+      onFirstPaint: markTerminalReady,
+      requestFrame: (callback) => window.requestAnimationFrame(callback),
+      write: (data, callback) => terminal.write(data, callback),
+      writeChunkSize: TERMINAL_WRITE_CHUNK_SIZE
+    });
     const cleanupTouchScroll = bindTerminalTouchScroll(touchLayer, element, undefined, {
       onUserScroll: pauseFollowBottomAfterUserScroll
     });
@@ -429,33 +447,8 @@ function TerminalPane({
     };
     touchLayer.addEventListener("wheel", handleWheelScroll, { passive: false });
 
-    const drainTerminalOutput = () => {
-      if (disposed) {
-        return;
-      }
-
-      const chunk = pendingTerminalOutput.slice(0, TERMINAL_WRITE_CHUNK_SIZE);
-      pendingTerminalOutput = pendingTerminalOutput.slice(chunk.length);
-      if (!chunk) {
-        writingTerminalOutput = false;
-        scrollToBottomIfFollowing();
-        refreshTerminal();
-        return;
-      }
-
-      writingTerminalOutput = true;
-      terminal.write(chunk, () => {
-        scrollToBottomIfFollowing();
-        refreshTerminal();
-        window.requestAnimationFrame(drainTerminalOutput);
-      });
-    };
-
     const writeTerminalOutput = (data: string) => {
-      pendingTerminalOutput += data;
-      if (!writingTerminalOutput) {
-        drainTerminalOutput();
-      }
+      terminalOutputDrain.write(data);
     };
 
     const scheduleCursorSync = () => {
@@ -518,7 +511,7 @@ function TerminalPane({
         return;
       }
       scheduleResize();
-      if (!hasOutput) {
+      if (!hasReceivedOutput && !hasPaintedOutput) {
         setTerminalPhase("waitingForOutput");
       }
     });
@@ -530,8 +523,7 @@ function TerminalPane({
       const message = JSON.parse(event.data as string) as TerminalMessage;
       if (message.type === "output") {
         if (message.data.length > 0) {
-          hasOutput = true;
-          setTerminalPhase("ready");
+          hasReceivedOutput = true;
         }
         writeTerminalOutput(message.data);
       }
@@ -541,17 +533,20 @@ function TerminalPane({
       }
 
       if (message.type === "exit") {
-        setTerminalPhase("ready");
         writeTerminalOutput(`\r\n[OpenCozy session exited: ${message.exitCode}]\r\n`);
       }
     });
     socket.addEventListener("close", (event) => {
-      if (!disposed) {
-        setTerminalPhase("ready");
+      if (disposed) {
+        return;
       }
-      if (!disposed && event.code !== 1000) {
-        terminal.writeln(`\r\n[OpenCozy socket closed: ${event.code || "no code"}]`);
+
+      if (event.code !== 1000) {
+        writeTerminalOutput(`\r\n[OpenCozy socket closed: ${event.code || "no code"}]\r\n`);
+        return;
       }
+
+      markTerminalReady();
     });
 
     scheduleResize();
@@ -562,6 +557,7 @@ function TerminalPane({
       if (resizeFrame !== null) {
         window.cancelAnimationFrame(resizeFrame);
       }
+      terminalOutputDrain.dispose();
       cleanupTouchScroll();
       touchLayer.removeEventListener("wheel", handleWheelScroll);
       terminalInputDisposable.dispose();
