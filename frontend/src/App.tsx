@@ -155,6 +155,9 @@ function TerminalPane({
   const focusKeyboard = useCallback(() => {
     const terminal = terminalRef.current;
     terminal?.scrollToBottom();
+    if (terminal && terminal.rows > 0) {
+      terminal.refresh(0, terminal.rows - 1);
+    }
     keyboardInputRef.current?.focus({ preventScroll: true });
   }, []);
 
@@ -234,6 +237,8 @@ function TerminalPane({
 
     const terminal = new Terminal({
       cursorBlink: true,
+      cursorInactiveStyle: "block",
+      cursorStyle: "block",
       convertEol: true,
       disableStdin: true,
       fontFamily: "SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -273,6 +278,11 @@ function TerminalPane({
         socket.send(JSON.stringify({ type: "input", data }));
       }
     });
+    const refreshTerminal = () => {
+      if (terminal.rows > 0) {
+        terminal.refresh(0, terminal.rows - 1);
+      }
+    };
     const fitAndSendResize = () => {
       resizeFrame = null;
       if (disposed) {
@@ -280,6 +290,7 @@ function TerminalPane({
       }
 
       fitAddon.fit();
+      refreshTerminal();
       if (socket.readyState === WebSocket.OPEN && (terminal.cols !== lastSentCols || terminal.rows !== lastSentRows)) {
         lastSentCols = terminal.cols;
         lastSentRows = terminal.rows;
@@ -297,6 +308,26 @@ function TerminalPane({
 
     const resizeObserver = new ResizeObserver(scheduleResize);
     resizeObserver.observe(element);
+
+    const restoreTerminalFrame = () => {
+      if (disposed) {
+        return;
+      }
+
+      scheduleResize();
+      terminal.scrollToBottom();
+      window.requestAnimationFrame(refreshTerminal);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        restoreTerminalFrame();
+      }
+    };
+
+    window.addEventListener("focus", restoreTerminalFrame);
+    window.addEventListener("pageshow", restoreTerminalFrame);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     socket.addEventListener("open", () => {
       if (disposed) {
@@ -320,6 +351,7 @@ function TerminalPane({
         }
         terminal.write(message.data, () => {
           terminal.scrollToBottom();
+          refreshTerminal();
         });
       }
 
@@ -351,6 +383,9 @@ function TerminalPane({
       cleanupTouchScroll();
       terminalInputDisposable.dispose();
       resizeObserver.disconnect();
+      window.removeEventListener("focus", restoreTerminalFrame);
+      window.removeEventListener("pageshow", restoreTerminalFrame);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
 
       if (socket.readyState === WebSocket.CONNECTING) {
         socket.addEventListener("open", () => socket.close(1000, "Terminal pane disposed"), { once: true });
