@@ -3,6 +3,10 @@
   --oc-safe-right: env(safe-area-inset-right, 0px);
   --oc-safe-top: env(safe-area-inset-top, 0px);
   --oc-keyboard-reserve: 0px;
+  --oc-control-bg: rgb(15 21 17 / 0.48);
+  --oc-control-border: rgb(143 208 165 / 0.18);
+  --oc-control-fg: rgb(241 245 239 / 0.82);
+  --oc-control-active-bg: rgb(47 111 88 / 0.58);
 
   color: #f1f5ef;
   background: #070a08;
@@ -96,9 +100,9 @@ button:disabled {
 .iconButton {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  background: rgb(15 21 17 / 0.48);
-  border: 1px solid rgb(143 208 165 / 0.18);
-  color: rgb(241 245 239 / 0.82);
+  background: var(--oc-control-bg);
+  border: 1px solid var(--oc-control-border);
+  color: var(--oc-control-fg);
   height: 40px;
   min-width: 40px;
   padding: 0;
@@ -113,9 +117,9 @@ button:disabled {
 }
 
 .iconButton.launch {
-  background: rgb(15 21 17 / 0.48);
-  border-color: rgb(143 208 165 / 0.18);
-  color: rgb(241 245 239 / 0.82);
+  background: var(--oc-control-bg);
+  border-color: var(--oc-control-border);
+  color: var(--oc-control-fg);
 }
 
 .iconButton.danger,
@@ -139,8 +143,8 @@ button:disabled {
 }
 
 .actionMenu button {
-  background: rgb(15 21 17 / 0.48);
-  border: 1px solid rgb(143 208 165 / 0.18);
+  background: var(--oc-control-bg);
+  border: 1px solid var(--oc-control-border);
   color: rgb(241 245 239 / 0.86);
   justify-content: flex-start;
   min-height: 42px;
@@ -148,7 +152,7 @@ button:disabled {
 }
 
 .actionMenu button:hover {
-  background: rgb(47 111 88 / 0.58);
+  background: var(--oc-control-active-bg);
 }
 
 .errorBar {
@@ -323,10 +327,9 @@ button:disabled {
 .bottomFocusButton {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  background: rgb(15 21 17 / 0.42);
-  border: 1px solid rgb(241 245 239 / 0.18);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
-  color: rgb(241 245 239 / 0.82);
+  background: var(--oc-control-bg);
+  border: 1px solid var(--oc-control-border);
+  color: var(--oc-control-fg);
   height: 40px;
   min-height: 40px;
   min-width: 40px;
@@ -336,7 +339,7 @@ button:disabled {
 }
 
 .bottomFocusButton:active {
-  background: rgb(47 111 88 / 0.58);
+  background: var(--oc-control-active-bg);
 }
 
 .arrowPad {
@@ -352,9 +355,9 @@ button:disabled {
 }
 
 .arrowPadButton {
-  background: rgb(15 21 17 / 0.48);
-  border: 1px solid rgb(143 208 165 / 0.18);
-  color: rgb(241 245 239 / 0.82);
+  background: var(--oc-control-bg);
+  border: 1px solid var(--oc-control-border);
+  color: var(--oc-control-fg);
   height: 40px;
   min-height: 40px;
   padding: 0;
@@ -362,7 +365,7 @@ button:disabled {
 }
 
 .arrowPadButton:active {
-  background: rgb(47 111 88 / 0.58);
+  background: var(--oc-control-active-bg);
 }
 
 .arrowPadUp {
@@ -399,8 +402,8 @@ button:disabled {
 .primaryButton {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  background: rgb(15 21 17 / 0.48);
-  border: 1px solid rgb(143 208 165 / 0.18);
+  background: var(--oc-control-bg);
+  border: 1px solid var(--oc-control-border);
   color: rgb(241 245 239 / 0.86);
 }
 
