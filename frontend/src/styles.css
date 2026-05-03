@@ -1,5 +1,6 @@
 :root {
   --oc-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --oc-safe-left: env(safe-area-inset-left, 0px);
   --oc-safe-right: env(safe-area-inset-right, 0px);
   --oc-safe-top: env(safe-area-inset-top, 0px);
   --oc-keyboard-reserve: 0px;
@@ -327,13 +328,17 @@ button:disabled {
 
 .floatingTerminalControls {
   bottom: calc(144px + var(--oc-safe-bottom, 0px));
+  display: grid;
+  gap: 6px;
   pointer-events: auto;
   position: absolute;
   right: calc(8px + var(--oc-safe-right, 0px));
   z-index: 35;
 }
 
-.bottomFocusButton {
+.terminalControlButton,
+.bottomFocusButton,
+.arrowPadButton {
   background: var(--oc-control-bg);
   border: 1px solid var(--oc-control-border);
   color: var(--oc-control-fg);
@@ -345,8 +350,55 @@ button:disabled {
   width: 40px;
 }
 
+.terminalControlButton:active,
 .bottomFocusButton:active {
   background: var(--oc-control-active-bg);
+}
+
+.terminalPastePanel {
+  align-items: stretch;
+  background: rgb(15 21 17 / 0.92);
+  border: 1px solid rgb(143 208 165 / 0.24);
+  border-radius: 8px;
+  bottom: calc(144px + var(--oc-safe-bottom, 0px));
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  left: calc(8px + var(--oc-safe-left, 0px));
+  padding: 6px;
+  position: absolute;
+  right: calc(56px + var(--oc-safe-right, 0px));
+  z-index: 38;
+}
+
+.terminalPasteInput {
+  background: rgb(7 10 8 / 0.92);
+  border: 1px solid rgb(143 208 165 / 0.18);
+  border-radius: 8px;
+  color: #f1f5ef;
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 16px;
+  line-height: 1.35;
+  max-height: 150px;
+  min-height: 88px;
+  outline: none;
+  padding: 9px 10px;
+  resize: vertical;
+  width: 100%;
+}
+
+.terminalPasteInput:focus {
+  border-color: rgb(143 208 165 / 0.46);
+}
+
+.terminalPasteInput::placeholder {
+  color: rgb(169 181 173 / 0.72);
+}
+
+.terminalPasteActions {
+  display: grid;
+  gap: 6px;
+  grid-template-rows: repeat(2, 40px);
 }
 
 .arrowPad {
@@ -359,16 +411,6 @@ button:disabled {
   position: absolute;
   right: calc(8px + var(--oc-safe-right, 0px));
   z-index: 35;
-}
-
-.arrowPadButton {
-  background: var(--oc-control-bg);
-  border: 1px solid var(--oc-control-border);
-  color: var(--oc-control-fg);
-  height: 40px;
-  min-height: 40px;
-  padding: 0;
-  width: 40px;
 }
 
 .arrowPadButton:active {
@@ -561,6 +603,11 @@ button:disabled {
   .floatingTerminalControls,
   .arrowPad {
     right: calc(6px + var(--oc-safe-right, 0px));
+  }
+
+  .terminalPastePanel {
+    left: calc(6px + var(--oc-safe-left, 0px));
+    right: calc(54px + var(--oc-safe-right, 0px));
   }
 
   .terminalSurface {
