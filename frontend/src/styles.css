@@ -356,7 +356,7 @@ button:disabled {
 }
 
 .floatingTerminalControls {
-  bottom: calc(154px + var(--oc-safe-bottom, 0px));
+  bottom: calc(198px + var(--oc-safe-bottom, 0px));
   display: grid;
   gap: 14px;
   pointer-events: auto;
@@ -379,89 +379,9 @@ button:disabled {
   width: 40px;
 }
 
-.terminalControlButton--small {
-  height: 32px;
-  min-height: 32px;
-  min-width: 32px;
-  width: 32px;
-}
-
 .terminalControlButton:active,
 .bottomFocusButton:active {
   background: var(--oc-control-active-bg);
-}
-
-.terminalPasteControl {
-  position: relative;
-}
-
-.terminalPasteConfirm {
-  align-items: center;
-  background: rgb(15 21 17 / 0.94);
-  border: 1px solid rgb(143 208 165 / 0.24);
-  border-radius: 8px;
-  display: flex;
-  gap: 5px;
-  height: 40px;
-  padding: 4px;
-  position: absolute;
-  right: calc(100% + 8px);
-  top: 0;
-  z-index: 39;
-}
-
-.terminalPasteConfirm span {
-  color: rgb(241 245 239 / 0.86);
-  font-size: 12px;
-  line-height: 1;
-  padding: 0 3px 0 5px;
-  white-space: nowrap;
-}
-
-.terminalPastePanel {
-  align-items: stretch;
-  background: rgb(15 21 17 / 0.92);
-  border: 1px solid rgb(143 208 165 / 0.24);
-  border-radius: 8px;
-  bottom: calc(154px + var(--oc-safe-bottom, 0px));
-  display: grid;
-  gap: 6px;
-  grid-template-columns: minmax(0, 1fr) 40px;
-  left: calc(8px + var(--oc-safe-left, 0px));
-  padding: 6px;
-  position: absolute;
-  right: calc(56px + var(--oc-safe-right, 0px));
-  z-index: 38;
-}
-
-.terminalPasteInput {
-  background: rgb(7 10 8 / 0.92);
-  border: 1px solid rgb(143 208 165 / 0.18);
-  border-radius: 8px;
-  color: #f1f5ef;
-  font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 16px;
-  line-height: 1.35;
-  max-height: 150px;
-  min-height: 88px;
-  outline: none;
-  padding: 9px 10px;
-  resize: vertical;
-  width: 100%;
-}
-
-.terminalPasteInput:focus {
-  border-color: rgb(143 208 165 / 0.46);
-}
-
-.terminalPasteInput::placeholder {
-  color: rgb(169 181 173 / 0.72);
-}
-
-.terminalPasteActions {
-  display: grid;
-  gap: 6px;
-  grid-template-rows: repeat(2, 40px);
 }
 
 .arrowPad {
@@ -469,7 +389,7 @@ button:disabled {
   display: grid;
   gap: 4px;
   grid-template-columns: repeat(2, 40px);
-  grid-template-rows: repeat(3, 40px);
+  grid-template-rows: repeat(4, 40px);
   pointer-events: auto;
   position: absolute;
   right: calc(8px + var(--oc-safe-right, 0px));
@@ -498,6 +418,16 @@ button:disabled {
 .arrowPadRight {
   grid-column: 2;
   grid-row: 2;
+}
+
+.arrowPadEnter {
+  font-size: 12px;
+  font-weight: 650;
+  gap: 5px;
+  grid-column: 1 / span 2;
+  grid-row: 4;
+  line-height: 1;
+  width: 84px;
 }
 
 .terminalPlaceholder {
@@ -681,11 +611,6 @@ button:disabled {
   .floatingTerminalControls,
   .arrowPad {
     right: calc(6px + var(--oc-safe-right, 0px));
-  }
-
-  .terminalPastePanel {
-    left: calc(6px + var(--oc-safe-left, 0px));
-    right: calc(54px + var(--oc-safe-right, 0px));
   }
 
   .terminalSurface {

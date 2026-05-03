@@ -8,15 +8,13 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  ClipboardPaste,
-  Check,
+  CornerDownLeft,
   ExternalLink,
   Feather,
   List,
   Menu,
   Plus,
   Save,
-  SendHorizontal,
   Square,
   TerminalSquare,
   Trash2,
@@ -151,18 +149,6 @@ function wsUrl(sessionId: string): string {
   return `${protocol}://${window.location.host}/api/open-cozy-sessions/${sessionId}/socket`;
 }
 
-async function readTextFromClipboard(): Promise<string | null> {
-  if (!navigator.clipboard?.readText) {
-    return null;
-  }
-
-  try {
-    return await navigator.clipboard.readText();
-  } catch {
-    return null;
-  }
-}
-
 function SessionLoadingState({
   copy,
   overlay = false
@@ -183,24 +169,18 @@ function SessionLoadingState({
 
 function TerminalPane({
   session,
-  onError,
   onSessionUpdate
 }: {
   session: OpenCozySessionSummary;
-  onError: (message: string) => void;
   onSessionUpdate: (session: OpenCozySessionSummary) => void;
 }) {
   const elementRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const keyboardInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const pasteInputRef = useRef<HTMLTextAreaElement | null>(null);
   const touchLayerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const visualCursorRef = useRef<HTMLDivElement | null>(null);
   const composingRef = useRef(false);
-  const [pasteConfirmOpen, setPasteConfirmOpen] = useState(false);
-  const [pastePanelOpen, setPastePanelOpen] = useState(false);
-  const [pasteText, setPasteText] = useState("");
   const [terminalPhase, setTerminalPhase] = useState<TerminalPhase>("connecting");
 
   const syncVisualCursor = useCallback(() => {
@@ -259,47 +239,6 @@ function TerminalPane({
     return false;
   }, []);
 
-  const sendTerminalInput = useCallback((data: string) => {
-    if (data && !sendInput(data)) {
-      onError("Terminal is not connected.");
-    }
-  }, [onError, sendInput]);
-
-  const closePastePanel = useCallback(() => {
-    setPasteConfirmOpen(false);
-    setPastePanelOpen(false);
-    setPasteText("");
-  }, []);
-
-  const closePasteConfirmation = useCallback(() => {
-    setPasteConfirmOpen(false);
-  }, []);
-
-  const openPasteConfirmation = useCallback(() => {
-    setPasteConfirmOpen(true);
-  }, []);
-
-  const handleConfirmPaste = useCallback(async () => {
-    setPasteConfirmOpen(false);
-    const text = await readTextFromClipboard();
-    if (text === null) {
-      setPastePanelOpen(true);
-      return;
-    }
-
-    const data = normalizeTerminalInput(text);
-    if (data) {
-      sendTerminalInput(data);
-      focusKeyboard();
-    }
-  }, [focusKeyboard, sendTerminalInput]);
-
-  const handleSendManualPaste = useCallback(() => {
-    sendTerminalInput(normalizeTerminalInput(pasteText));
-    closePastePanel();
-    focusKeyboard();
-  }, [closePastePanel, focusKeyboard, pasteText, sendTerminalInput]);
-
   const flushKeyboardInput = useCallback((target: HTMLTextAreaElement) => {
     const data = normalizeTerminalInput(target.value);
     target.value = "";
@@ -356,41 +295,6 @@ function TerminalPane({
 
     return bindKeyboardReserve(input);
   }, [session.id]);
-
-  useEffect(() => {
-    if (!pasteConfirmOpen) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      setPasteConfirmOpen(false);
-    }, 2600);
-
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [pasteConfirmOpen]);
-
-  useEffect(() => {
-    if (!pastePanelOpen) {
-      return;
-    }
-
-    const input = pasteInputRef.current;
-    if (!input) {
-      return;
-    }
-
-    const cleanupKeyboardReserve = bindKeyboardReserve(input);
-    const focusFrame = window.requestAnimationFrame(() => {
-      input.focus({ preventScroll: true });
-    });
-
-    return () => {
-      window.cancelAnimationFrame(focusFrame);
-      cleanupKeyboardReserve();
-    };
-  }, [pastePanelOpen]);
 
   useEffect(() => {
     const element = elementRef.current;
@@ -643,46 +547,7 @@ function TerminalPane({
           />
         )}
         <div className="terminalTouchLayer" ref={touchLayerRef} aria-hidden="true" />
-        {pastePanelOpen && (
-          <div className="terminalPastePanel" data-opencozy-scrollable="true">
-            <textarea
-              ref={pasteInputRef}
-              className="terminalPasteInput"
-              aria-label="Paste terminal input"
-              autoCapitalize="off"
-              autoCorrect="off"
-              placeholder="Paste"
-              spellCheck={false}
-              value={pasteText}
-              onChange={(event) => setPasteText(event.currentTarget.value)}
-            />
-            <div className="terminalPasteActions">
-              <button type="button" className="terminalControlButton" onMouseDown={(event) => event.preventDefault()} onClick={handleSendManualPaste} disabled={!pasteText} aria-label="Send pasted text">
-                <SendHorizontal size={18} />
-              </button>
-              <button type="button" className="terminalControlButton" onMouseDown={(event) => event.preventDefault()} onClick={closePastePanel} aria-label="Close paste field">
-                <X size={18} />
-              </button>
-            </div>
-          </div>
-        )}
         <div className="floatingTerminalControls">
-          <div className="terminalPasteControl">
-            {pasteConfirmOpen && (
-              <div className="terminalPasteConfirm" role="group" aria-label="Confirm paste">
-                <span>Paste?</span>
-                <button type="button" className="terminalControlButton terminalControlButton--small" onMouseDown={(event) => event.preventDefault()} onClick={() => void handleConfirmPaste()} aria-label="Confirm paste">
-                  <Check size={16} />
-                </button>
-                <button type="button" className="terminalControlButton terminalControlButton--small" onMouseDown={(event) => event.preventDefault()} onClick={closePasteConfirmation} aria-label="Cancel paste">
-                  <X size={16} />
-                </button>
-              </div>
-            )}
-            <button type="button" className="terminalControlButton" onMouseDown={(event) => event.preventDefault()} onClick={openPasteConfirmation} aria-label="Paste to terminal">
-              <ClipboardPaste size={18} />
-            </button>
-          </div>
           <button type="button" className="terminalControlButton bottomFocusButton terminalControlButton--keyboard" onMouseDown={(event) => event.preventDefault()} onClick={focusKeyboard} aria-label="Scroll to bottom and focus input">
             <Feather size={19} />
           </button>
@@ -699,6 +564,10 @@ function TerminalPane({
           </button>
           <button type="button" className="arrowPadButton arrowPadRight" onMouseDown={(event) => event.preventDefault()} onClick={() => sendInput(ARROW_KEYS.right)} aria-label="Right">
             <ArrowRight size={19} />
+          </button>
+          <button type="button" className="arrowPadButton arrowPadEnter" onMouseDown={(event) => event.preventDefault()} onClick={() => sendInput(TERMINAL_KEYS.enter)} aria-label="Enter">
+            <CornerDownLeft size={17} />
+            <span>Enter</span>
           </button>
         </div>
       </div>
@@ -968,7 +837,7 @@ export default function App() {
 
       <section className="terminalViewport" aria-label="Codex terminal">
         {activeSession ? (
-          <TerminalPane session={activeSession} onError={setError} onSessionUpdate={handleSessionUpdate} />
+          <TerminalPane session={activeSession} onSessionUpdate={handleSessionUpdate} />
         ) : pendingSessionMode ? (
           <SessionLoadingState copy={getSessionLoadingCopy(pendingSessionMode, "initializing")} />
         ) : loadingInitialData ? (
