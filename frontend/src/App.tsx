@@ -10,7 +10,6 @@ import {
   ArrowUp,
   ChevronRight,
   ExternalLink,
-  Feather,
   List,
   Menu,
   Plus,
@@ -617,12 +616,13 @@ function TerminalPane({
           />
         )}
         <div className="terminalTouchLayer" ref={touchLayerRef} aria-hidden="true" />
-        {followBottomPaused && (
-          <button type="button" className="terminalControlButton terminalFollowButton" onMouseDown={(event) => event.preventDefault()} onClick={resumeFollowBottom} aria-label="Follow latest output">
-            <Feather size={19} />
-          </button>
-        )}
-        <button type="button" className="terminalComposeZone" onMouseDown={(event) => event.preventDefault()} onClick={focusKeyboard} aria-label="Scroll to bottom and focus input" />
+        <button
+          type="button"
+          className={`terminalComposeZone${followBottomPaused ? " terminalComposeZone--followPaused" : ""}`}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={focusKeyboard}
+          aria-label="Scroll to bottom and focus input"
+        />
         <div className="arrowPad" aria-label="Terminal arrow keys">
           <button type="button" className="arrowPadButton arrowPadUp" onMouseDown={(event) => event.preventDefault()} onClick={() => sendInput(ARROW_KEYS.up)} aria-label="Up">
             <ArrowUp size={19} />
