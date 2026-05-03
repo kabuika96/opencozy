@@ -9,7 +9,7 @@ import {
   ArrowRight,
   ArrowUp,
   ChevronDown,
-  CornerDownLeft,
+  ChevronRight,
   ExternalLink,
   List,
   Menu,
@@ -641,8 +641,7 @@ function TerminalPane({
             <ArrowRight size={19} />
           </button>
           <button type="button" className="arrowPadButton arrowPadEnter" onMouseDown={(event) => event.preventDefault()} onClick={() => sendInput(TERMINAL_KEYS.enter)} aria-label="Enter">
-            <CornerDownLeft size={17} />
-            <span>Enter</span>
+            <ChevronRight size={24} strokeWidth={2.4} />
           </button>
         </div>
       </div>

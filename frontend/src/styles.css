@@ -425,7 +425,7 @@ button:disabled {
   display: grid;
   gap: 4px;
   grid-template-columns: repeat(2, 40px);
-  grid-template-rows: repeat(3, 40px) 10px 40px;
+  grid-template-rows: repeat(3, 40px) 10px 48px;
   pointer-events: auto;
   position: absolute;
   right: calc(8px + var(--oc-safe-right, 0px));
@@ -457,13 +457,14 @@ button:disabled {
 }
 
 .arrowPadEnter {
-  font-size: 12px;
-  font-weight: 650;
-  gap: 5px;
+  border-radius: 999px;
   grid-column: 1 / span 2;
   grid-row: 5;
-  line-height: 1;
-  width: 84px;
+  height: 48px;
+  justify-self: center;
+  min-height: 48px;
+  min-width: 48px;
+  width: 48px;
 }
 
 .terminalPlaceholder {
