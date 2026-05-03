@@ -266,10 +266,17 @@ describe("OpenCozy session WebSocket route", () => {
     expect(createResponse.statusCode).toBe(201);
     const session = createResponse.json<{ id: string; name: string; codexThreadId: string | null }>();
     expect(session).toMatchObject({ name: "Sessions", codexThreadId: null });
+    insertCodexThread(codexStateDbPath, {
+      id: "unrelated-active-thread",
+      title: "Unrelated Active Session",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.now() + 1
+    });
 
     const selectedTitle = new Promise<{ name: string; codexThreadId: string | null }>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("Session title did not update after resume selection")), 3_000);
       let insertedSelectedThread = false;
+      let confirmedResumePicker = false;
 
       void server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {}, {
         onInit: (socket) => {
@@ -284,11 +291,15 @@ describe("OpenCozy session WebSocket route", () => {
 
             if (parsed.session.name === "Sessions" && !insertedSelectedThread) {
               insertedSelectedThread = true;
+              if (!confirmedResumePicker) {
+                confirmedResumePicker = true;
+                socket.send(JSON.stringify({ type: "input", data: "\r" }));
+              }
               insertCodexThread(codexStateDbPath, {
                 id: "selected-thread",
                 title: "Selected Session",
                 cwd: fixture.cwd,
-                updatedAtMs: Date.now() + 1
+                updatedAtMs: Date.now() + 10_000
               });
             }
 

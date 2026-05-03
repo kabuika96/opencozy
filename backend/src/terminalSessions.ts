@@ -114,6 +114,10 @@ function defaultSessionName(mode: OpenCozySessionMode): string {
   return DEFAULT_SESSION_NAME[mode];
 }
 
+function hasLineSubmission(data: string): boolean {
+  return data.includes("\r") || data.includes("\n");
+}
+
 export function buildTerminalEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env = { ...source };
   delete env.NO_COLOR;
@@ -142,6 +146,7 @@ class OpenCozyPtySession {
   private outputFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingOutput = "";
   private pendingCodexTitle: string | null = null;
+  private resumePickerConfirmedAtMs: number | null = null;
   private status: "running" | "exited" = "running";
   private userRenamed = false;
   private exitCode: number | null = null;
@@ -253,6 +258,7 @@ class OpenCozyPtySession {
       }
 
       if (message.type === "input" && this.status === "running") {
+        this.markResumePickerActivity(message.data);
         this.ptyProcess.write(message.data);
         this.touch();
       }
@@ -392,6 +398,15 @@ class OpenCozyPtySession {
     return this.mode === "resume" && Boolean(this.codexThreadId) && !this.pendingCodexTitle && this.name !== defaultSessionName(this.mode);
   }
 
+  private markResumePickerActivity(data: string): void {
+    if (this.mode !== "resume" || this.codexThreadId || !hasLineSubmission(data)) {
+      return;
+    }
+
+    this.resumePickerConfirmedAtMs = Date.now();
+    this.lastCodexThreadSyncAt = 0;
+  }
+
   private syncCodexThreadTitle(options: { force?: boolean } = {}): boolean {
     if (!this.codexThreadStore) {
       return false;
@@ -406,9 +421,13 @@ class OpenCozyPtySession {
     const previousName = this.name;
     const previousThreadId = this.codexThreadId;
     const shouldDiscoverThread = !this.codexThreadId || (this.mode === "resume" && !this.userRenamed && this.name === defaultSessionName(this.mode));
+    const discoverySinceMs = this.mode === "resume" ? this.resumePickerConfirmedAtMs : this.createdAtMs;
+    if (shouldDiscoverThread && discoverySinceMs === null) {
+      return false;
+    }
     const thread = !shouldDiscoverThread && this.codexThreadId
       ? this.codexThreadStore.getThread(this.codexThreadId)
-      : this.codexThreadStore.findActiveThread(this.cwd, this.createdAtMs);
+      : this.codexThreadStore.findActiveThread(this.cwd, discoverySinceMs ?? this.createdAtMs);
 
     if (!thread) {
       return false;
