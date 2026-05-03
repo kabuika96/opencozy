@@ -101,7 +101,7 @@ npm run services:start
 
 Do not run `npm run dev` and `npm run services:start` at the same time. Stop the foreground dev runner before enabling durable services, or the default ports will already be occupied.
 
-See [docs/opencozy-local-services.md](docs/opencozy-local-services.md) for status, restart, stop, and log commands.
+Frontend changes update through Vite/HMR. Backend changes require a manual restart because the backend owns live Codex PTYs; auto-restarting the backend can interrupt active conversations. See [docs/opencozy-local-services.md](docs/opencozy-local-services.md) for the backend restart policy, status, restart, stop, and log commands.
 
 ## Local Data
 
