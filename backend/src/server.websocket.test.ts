@@ -71,12 +71,14 @@ describe("OpenCozy session WebSocket route", () => {
       url: "/api/open-cozy-sessions",
       payload: {
         mode: "new",
+        name: "Launch Plan",
         cwd: fixture.cwd
       }
     });
     expect(createResponse.statusCode).toBe(201);
 
-    const session = createResponse.json<{ id: string }>();
+    const session = createResponse.json<{ id: string; name: string }>();
+    expect(session.name).toBe("Launch Plan");
     const statusMessage = new Promise<string>((resolve) => {
       void server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {}, {
         onInit: (socket) => {
@@ -92,10 +94,11 @@ describe("OpenCozy session WebSocket route", () => {
     });
 
     const message = await statusMessage;
-    const parsed = JSON.parse(message) as { type: string; session?: { id: string } };
+    const parsed = JSON.parse(message) as { type: string; session?: { id: string; name: string } };
 
     expect(parsed.type).toBe("status");
     expect(parsed.session?.id).toBe(session.id);
+    expect(parsed.session?.name).toBe("Launch Plan");
 
     await server.inject({
       method: "DELETE",

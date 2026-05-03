@@ -536,6 +536,16 @@ button:disabled {
   margin: 0;
 }
 
+.sessionNameSheet {
+  max-width: 430px;
+}
+
+.sessionNameForm {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .appForm {
   display: grid;
   gap: 12px;
@@ -624,6 +634,7 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
+  .sessionNameForm,
   .appForm {
     grid-template-columns: 1fr;
   }

@@ -24,6 +24,7 @@ export type OpenCozySessionMode = "new" | "resume" | "resumeLast";
 
 export type OpenCozySessionSummary = {
   id: string;
+  name: string;
   mode: OpenCozySessionMode;
   command: string;
   args: string[];

@@ -16,6 +16,12 @@ type ClientMessage =
   | { type: "resize"; cols: number; rows: number }
   | { type: "close" };
 
+const DEFAULT_SESSION_NAME: Record<OpenCozySessionMode, string> = {
+  new: "New Session",
+  resume: "History",
+  resumeLast: "Last Session"
+};
+
 function serialize(message: unknown): string {
   return JSON.stringify(message);
 }
@@ -73,6 +79,11 @@ function commandArgs(mode: OpenCozySessionMode, cwd: string): string[] {
   return ["resume", "-C", cwd];
 }
 
+function defaultSessionName(mode: OpenCozySessionMode): string {
+  const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+  return `${DEFAULT_SESSION_NAME[mode]} ${timestamp}`;
+}
+
 export function buildTerminalEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env = { ...source };
   delete env.NO_COLOR;
@@ -98,6 +109,7 @@ class OpenCozyPtySession {
   private updatedAt: string;
 
   readonly id: string;
+  readonly name: string;
   readonly mode: OpenCozySessionMode;
   readonly command: string;
   readonly args: string[];
@@ -106,6 +118,7 @@ class OpenCozyPtySession {
 
   constructor(config: OpenCozyConfig, input: CreateOpenCozySessionInput) {
     this.id = randomUUID();
+    this.name = input.name || defaultSessionName(input.mode);
     this.mode = input.mode;
     this.cwd = resolveCwd(config, input.cwd);
     const launch = resolveCodexLaunch(config.codexBin);
@@ -138,6 +151,7 @@ class OpenCozyPtySession {
   summary(): OpenCozySessionSummary {
     return {
       id: this.id,
+      name: this.name,
       mode: this.mode,
       command: this.command,
       args: this.args,

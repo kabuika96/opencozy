@@ -21,6 +21,7 @@ describe("API requests", () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
         id: "session-1",
+        name: "Workspace",
         mode: "new",
         command: "codex",
         args: [],
@@ -33,17 +34,19 @@ describe("API requests", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await createOpenCozySession("new", "/tmp/opencozy-workspace");
+    await createOpenCozySession("new", { cwd: "/tmp/opencozy-workspace", name: "Workspace" });
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const headers = init?.headers as Headers;
     expect(headers.get("Content-Type")).toBe("application/json");
+    expect(init.body).toBe(JSON.stringify({ mode: "new", cwd: "/tmp/opencozy-workspace", name: "Workspace" }));
   });
 
   it("lets the backend use its configured default Codex cwd", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
         id: "session-1",
+        name: "New Session",
         mode: "new",
         command: "codex",
         args: [],

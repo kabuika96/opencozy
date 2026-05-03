@@ -6,6 +6,11 @@ import type {
   OpenCozySessionSummary
 } from "./types";
 
+export type CreateOpenCozySessionOptions = {
+  cwd?: string;
+  name?: string;
+};
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body !== undefined && !headers.has("Content-Type")) {
@@ -37,10 +42,14 @@ export function listOpenCozySessions(): Promise<OpenCozySessionSummary[]> {
   return request<OpenCozySessionSummary[]>("/api/open-cozy-sessions");
 }
 
-export function createOpenCozySession(mode: OpenCozySessionMode, cwd?: string): Promise<OpenCozySessionSummary> {
+export function createOpenCozySession(mode: OpenCozySessionMode, options: CreateOpenCozySessionOptions = {}): Promise<OpenCozySessionSummary> {
   return request<OpenCozySessionSummary>("/api/open-cozy-sessions", {
     method: "POST",
-    body: JSON.stringify(cwd ? { mode, cwd } : { mode })
+    body: JSON.stringify({
+      mode,
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      ...(options.name ? { name: options.name } : {})
+    })
   });
 }
 

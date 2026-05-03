@@ -1,6 +1,8 @@
 import { normalizeShortcutPath } from "./appUrls.js";
 import type { AppShortcutInput, OpenCozySessionMode, ShortcutProtocol } from "./types.js";
 
+const SESSION_NAME_MAX_LENGTH = 80;
+
 type ParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; message: string };
@@ -65,6 +67,7 @@ export function parseAppShortcutInput(body: unknown): ParseResult<AppShortcutInp
 
 export type CreateOpenCozySessionInput = {
   mode: OpenCozySessionMode;
+  name?: string;
   cwd?: string;
 };
 
@@ -81,10 +84,21 @@ export function parseCreateOpenCozySessionInput(body: unknown): ParseResult<Crea
     return { ok: false, message: "cwd must be a non-empty string when provided" };
   }
 
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string" || body.name.trim().length === 0) {
+      return { ok: false, message: "name must be a non-empty string when provided" };
+    }
+
+    if (body.name.trim().length > SESSION_NAME_MAX_LENGTH) {
+      return { ok: false, message: `name must be ${SESSION_NAME_MAX_LENGTH} characters or fewer` };
+    }
+  }
+
   return {
     ok: true,
     value: {
       mode: body.mode,
+      name: typeof body.name === "string" ? body.name.trim() : undefined,
       cwd: typeof body.cwd === "string" ? body.cwd.trim() : undefined
     }
   };
