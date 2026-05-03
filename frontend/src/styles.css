@@ -356,7 +356,7 @@ button:disabled {
 }
 
 .floatingTerminalControls {
-  bottom: calc(198px + var(--oc-safe-bottom, 0px));
+  bottom: calc(212px + var(--oc-safe-bottom, 0px));
   display: grid;
   gap: 14px;
   pointer-events: auto;
@@ -389,7 +389,7 @@ button:disabled {
   display: grid;
   gap: 4px;
   grid-template-columns: repeat(2, 40px);
-  grid-template-rows: repeat(4, 40px);
+  grid-template-rows: repeat(3, 40px) 10px 40px;
   pointer-events: auto;
   position: absolute;
   right: calc(8px + var(--oc-safe-right, 0px));
@@ -425,7 +425,7 @@ button:disabled {
   font-weight: 650;
   gap: 5px;
   grid-column: 1 / span 2;
-  grid-row: 4;
+  grid-row: 5;
   line-height: 1;
   width: 84px;
 }
