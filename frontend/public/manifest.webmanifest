@@ -1,0 +1,17 @@
+{
+  "name": "OpenCozy",
+  "short_name": "OpenCozy",
+  "description": "LAN PWA for using Codex from an iPhone.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070a08",
+  "theme_color": "#111512",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

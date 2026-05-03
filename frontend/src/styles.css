@@ -1,0 +1,580 @@
+:root {
+  --oc-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --oc-safe-right: env(safe-area-inset-right, 0px);
+  --oc-safe-top: env(safe-area-inset-top, 0px);
+  --oc-keyboard-reserve: 0px;
+
+  color: #f1f5ef;
+  background: #070a08;
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  width: 100%;
+}
+
+html,
+body {
+  background: #070a08;
+  min-width: 320px;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+a.iconButton {
+  align-items: center;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 13px;
+  text-decoration: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.terminalShell {
+  background: #070a08;
+  bottom: 0;
+  left: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: fixed;
+  right: 0;
+  top: 0;
+}
+
+.topFloatingControls {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  left: 0;
+  padding: calc(6px + var(--oc-safe-top, 0px)) calc(8px + var(--oc-safe-right, 0px)) 0 8px;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 45;
+}
+
+.menuAnchor {
+  pointer-events: auto;
+  position: relative;
+}
+
+.iconButton {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: rgb(15 21 17 / 0.48);
+  border: 1px solid rgb(143 208 165 / 0.18);
+  color: rgb(241 245 239 / 0.82);
+  height: 40px;
+  min-width: 40px;
+  padding: 0;
+  width: 40px;
+}
+
+.iconButton.small {
+  height: 34px;
+  min-height: 34px;
+  min-width: 34px;
+  width: 34px;
+}
+
+.iconButton.launch {
+  background: rgb(15 21 17 / 0.48);
+  border-color: rgb(143 208 165 / 0.18);
+  color: rgb(241 245 239 / 0.82);
+}
+
+.iconButton.danger,
+.stopButton {
+  color: #ff9388;
+  pointer-events: auto;
+}
+
+.actionMenu {
+  background: rgb(15 21 17 / 0.88);
+  border: 1px solid rgb(143 208 165 / 0.22);
+  border-radius: 8px;
+  box-shadow: 0 18px 45px rgb(0 0 0 / 0.45);
+  display: grid;
+  gap: 4px;
+  left: 0;
+  min-width: 190px;
+  padding: 6px;
+  position: absolute;
+  top: calc(100% + 8px);
+}
+
+.actionMenu button {
+  background: rgb(15 21 17 / 0.48);
+  border: 1px solid rgb(143 208 165 / 0.18);
+  color: rgb(241 245 239 / 0.86);
+  justify-content: flex-start;
+  min-height: 42px;
+  width: 100%;
+}
+
+.actionMenu button:hover {
+  background: rgb(47 111 88 / 0.58);
+}
+
+.errorBar {
+  align-items: center;
+  background: #3a1918;
+  border: 1px solid #7b3935;
+  border-radius: 8px;
+  color: #ffd5d1;
+  display: flex;
+  font-size: 14px;
+  gap: 10px;
+  justify-content: space-between;
+  left: 8px;
+  padding: 8px 8px 8px 12px;
+  position: absolute;
+  right: 8px;
+  top: calc(54px + var(--oc-safe-top, 0px));
+  z-index: 40;
+}
+
+.terminalViewport {
+  background: #070a08;
+  bottom: var(--oc-keyboard-reserve);
+  display: flex;
+  left: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.terminalOutputFrame {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.terminalKeyboardInput {
+  background: transparent;
+  border: 0;
+  caret-color: transparent;
+  color: transparent;
+  font-size: 16px;
+  height: 1px;
+  left: 8px;
+  opacity: 0.01;
+  outline: 0;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  resize: none;
+  top: 8px;
+  width: 1px;
+  z-index: 1;
+}
+
+.terminalSurface {
+  height: 100%;
+  min-height: 0;
+  padding: 8px;
+  touch-action: none;
+}
+
+.terminalLoadingState {
+  align-items: center;
+  color: #c8d3cc;
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  justify-content: center;
+  min-height: 0;
+  padding: 24px;
+  text-align: left;
+}
+
+.terminalLoadingState--overlay {
+  background: rgb(7 10 8 / 0.88);
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 25;
+}
+
+.terminalLoadingSpinner {
+  animation: terminalLoadingSpin 0.85s linear infinite;
+  border: 2px solid rgb(143 208 165 / 0.24);
+  border-radius: 999px;
+  border-top-color: #8fd0a5;
+  flex: 0 0 auto;
+  height: 22px;
+  width: 22px;
+}
+
+.terminalLoadingText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.terminalLoadingText strong {
+  color: #f1f5ef;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.terminalLoadingText span {
+  color: #a9b5ad;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+@keyframes terminalLoadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminalLoadingSpinner {
+    animation: none;
+  }
+}
+
+.terminalSurface .xterm {
+  height: 100%;
+  touch-action: none;
+}
+
+.terminalSurface .xterm-screen {
+  touch-action: none;
+}
+
+.terminalSurface .xterm-screen canvas,
+.terminalSurface .xterm-rows,
+.terminalSurface .xterm-rows *,
+.terminalSurface .xterm-accessibility,
+.terminalSurface .xterm-accessibility-tree,
+.terminalSurface .xterm-accessibility-tree * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.terminalSurface .xterm-viewport {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.terminalTouchLayer {
+  inset: 0;
+  position: absolute;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  z-index: 20;
+}
+
+.floatingTerminalControls {
+  bottom: calc(144px + var(--oc-safe-bottom, 0px));
+  pointer-events: auto;
+  position: absolute;
+  right: calc(8px + var(--oc-safe-right, 0px));
+  z-index: 35;
+}
+
+.bottomFocusButton {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: rgb(15 21 17 / 0.42);
+  border: 1px solid rgb(241 245 239 / 0.18);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+  color: rgb(241 245 239 / 0.82);
+  height: 40px;
+  min-height: 40px;
+  min-width: 40px;
+  padding: 0;
+  touch-action: manipulation;
+  width: 40px;
+}
+
+.bottomFocusButton:active {
+  background: rgb(47 111 88 / 0.58);
+}
+
+.arrowPad {
+  bottom: calc(10px + var(--oc-safe-bottom, 0px));
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, 40px);
+  grid-template-rows: repeat(3, 40px);
+  pointer-events: auto;
+  position: absolute;
+  right: calc(8px + var(--oc-safe-right, 0px));
+  z-index: 35;
+}
+
+.arrowPadButton {
+  background: rgb(15 21 17 / 0.48);
+  border: 1px solid rgb(143 208 165 / 0.18);
+  color: rgb(241 245 239 / 0.82);
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  width: 40px;
+}
+
+.arrowPadButton:active {
+  background: rgb(47 111 88 / 0.58);
+}
+
+.arrowPadUp {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.arrowPadLeft {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.arrowPadDown {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.arrowPadRight {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.terminalPlaceholder {
+  align-items: center;
+  color: #a9b5ad;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  justify-content: center;
+}
+
+.terminalPlaceholder button,
+.primaryButton {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: rgb(15 21 17 / 0.48);
+  border: 1px solid rgb(143 208 165 / 0.18);
+  color: rgb(241 245 239 / 0.86);
+}
+
+.scrim {
+  background: rgb(0 0 0 / 0.54);
+  border-radius: 0;
+  bottom: 0;
+  cursor: default;
+  left: 0;
+  min-height: 0;
+  padding: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 45;
+}
+
+.sheet {
+  background: #111713;
+  border: 1px solid #314138;
+  border-radius: 8px;
+  box-shadow: 0 -18px 50px rgb(0 0 0 / 0.5);
+  color: #f1f5ef;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  left: 50%;
+  max-height: min(calc(100dvh - 70px - var(--oc-safe-top, 0px) - var(--oc-keyboard-reserve)), 720px);
+  max-width: 860px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 14px;
+  position: absolute;
+  top: calc(54px + var(--oc-safe-top, 0px));
+  transform: translateX(-50%);
+  width: min(calc(100% - 16px), 860px);
+  z-index: 50;
+}
+
+.sheetHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sheetHeader h2 {
+  font-size: 17px;
+  margin: 0;
+}
+
+.appForm {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1.2fr 110px 1fr 90px 1fr auto;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.field span {
+  color: #a9b5ad;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.field input,
+.field select {
+  background: #090d0b;
+  border: 1px solid #314138;
+  border-radius: 8px;
+  color: #f1f5ef;
+  height: 40px;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.primaryButton {
+  align-self: end;
+  min-height: 40px;
+}
+
+.appGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+}
+
+.appTile {
+  background: #151c18;
+  border: 1px solid #314138;
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 94px;
+  padding: 12px;
+}
+
+.appTile h3 {
+  font-size: 16px;
+  line-height: 1.2;
+  margin: 0 0 6px;
+}
+
+.appTile p {
+  color: #a9b5ad;
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.tileActions {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.emptyState {
+  align-items: center;
+  border: 1px dashed #435448;
+  border-radius: 8px;
+  color: #a9b5ad;
+  display: flex;
+  font-size: 14px;
+  justify-content: center;
+  min-height: 64px;
+  padding: 12px;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .appForm {
+    grid-template-columns: 1fr;
+  }
+
+  .primaryButton {
+    align-self: stretch;
+  }
+}
+
+@media (max-width: 520px) {
+  .floatingTerminalControls,
+  .arrowPad {
+    right: calc(6px + var(--oc-safe-right, 0px));
+  }
+
+  .terminalSurface {
+    padding: 6px;
+  }
+
+  .terminalLoadingState {
+    padding: 20px;
+  }
+
+  .sheet {
+    max-height: calc(100dvh - 64px - var(--oc-safe-top, 0px) - var(--oc-keyboard-reserve));
+    top: calc(52px + var(--oc-safe-top, 0px));
+    width: calc(100% - 12px);
+  }
+
+  .appTile {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tileActions {
+    justify-content: flex-end;
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "name": "opencozy",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "LAN-hosted PWA for running Codex from a phone or tablet.",
+  "type": "module",
+  "packageManager": "npm@11.11.0",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kabuika96/opencozy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kabuika96/opencozy/issues"
+  },
+  "homepage": "https://github.com/kabuika96/opencozy#readme",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "deps": "npm install",
+    "dev": "node scripts/dev.mjs",
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "services:install": "scripts/opencozy-services.sh install",
+    "services:start": "scripts/opencozy-services.sh start",
+    "services:stop": "scripts/opencozy-services.sh stop",
+    "services:restart": "scripts/opencozy-services.sh restart",
+    "services:status": "scripts/opencozy-services.sh status",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "check": "npm run lint && npm run test && npm run build",
+    "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend",
+    "test": "npm run test -w backend && npm run test -w frontend",
+    "lint": "eslint backend/src frontend/src --max-warnings=0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.3",
+    "vitest": "^4.0.8"
+  }
+}
