@@ -2,7 +2,7 @@
 
 OpenCozy is an open-source, LAN-hosted PWA for using Codex from a phone or tablet while Codex runs on a computer you control.
 
-It starts Codex in a PTY on the Codex Host and streams the terminal into a mobile-friendly browser app. It is intentionally small: no cloud account, no remote shell, no Electron wrapper, and no internet-facing deployment story.
+It starts Codex in a PTY on the Codex Host and streams the terminal into a mobile-friendly browser app. It is intentionally small: no cloud account, no remote shell, and no internet-facing deployment story.
 
 > Status: early alpha. OpenCozy is for trusted local networks, not public internet exposure.
 
