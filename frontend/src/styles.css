@@ -10,6 +10,7 @@
   --oc-control-active-bg: rgb(47 111 88 / 0.58);
   --oc-overlay-surface-bg: rgb(7 10 8 / 0.78);
   --oc-overlay-surface-border: rgb(241 245 239 / 0.12);
+  --oc-tabs-header-height: calc(45px + var(--oc-safe-top, 0px));
 
   color: #f1f5ef;
   background: #070a08;
@@ -444,7 +445,7 @@ button:disabled {
   overflow: hidden;
   position: absolute;
   right: 0;
-  top: 0;
+  top: var(--oc-tabs-header-height);
 }
 
 .terminalPaneSlot {
@@ -787,7 +788,7 @@ button:disabled {
   justify-items: stretch;
   max-width: calc(410px + var(--oc-safe-left, 0px) + var(--oc-safe-right, 0px));
   min-height: 100%;
-  padding: calc(76px + var(--oc-safe-top, 0px)) calc(16px + var(--oc-safe-right, 0px)) calc(24px + var(--oc-safe-bottom, 0px)) calc(16px + var(--oc-safe-left, 0px));
+  padding: 28px calc(16px + var(--oc-safe-right, 0px)) calc(24px + var(--oc-safe-bottom, 0px)) calc(16px + var(--oc-safe-left, 0px));
   width: 100%;
 }
 
