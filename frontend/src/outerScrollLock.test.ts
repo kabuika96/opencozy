@@ -11,8 +11,22 @@ class FakeScrollable {
     readonly scrollHeight: number
   ) {}
 
-  matches(): boolean {
-    return this.selectorMatch;
+  matches(selector: string): boolean {
+    return selector === ".sheet, [data-opencozy-scrollable='true']" && this.selectorMatch;
+  }
+}
+
+class FakeTextarea {
+  tagName = "TEXTAREA";
+}
+
+class FakeInput {
+  tagName = "INPUT";
+
+  constructor(readonly type: string) {}
+
+  getAttribute(name: string): string | null {
+    return name === "type" ? this.type : null;
   }
 }
 
@@ -58,6 +72,34 @@ describe("outer scroll lock", () => {
 
     root.dispatchEvent(touchEvent("touchstart", 180, [sheet, root]));
     const move = touchEvent("touchmove", 140, [sheet, root]);
+    root.dispatchEvent(move);
+
+    expect(move.defaultPrevented).toBe(true);
+
+    cleanup();
+  });
+
+  it("allows native textarea gestures such as selection and caret movement", () => {
+    const root = new FakeRoot();
+    const textarea = new FakeTextarea();
+    const cleanup = bindOuterScrollLock(root as unknown as HTMLElement);
+
+    root.dispatchEvent(touchEvent("touchstart", 180, [textarea, root]));
+    const move = touchEvent("touchmove", 140, [textarea, root]);
+    root.dispatchEvent(move);
+
+    expect(move.defaultPrevented).toBe(false);
+
+    cleanup();
+  });
+
+  it("still locks touchmove from non-text inputs", () => {
+    const root = new FakeRoot();
+    const checkbox = new FakeInput("checkbox");
+    const cleanup = bindOuterScrollLock(root as unknown as HTMLElement);
+
+    root.dispatchEvent(touchEvent("touchstart", 180, [checkbox, root]));
+    const move = touchEvent("touchmove", 140, [checkbox, root]);
     root.dispatchEvent(move);
 
     expect(move.defaultPrevented).toBe(true);

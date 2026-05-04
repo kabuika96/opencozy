@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { bindTerminalTouchScroll } from "./terminalTouchScroll";
 
 class FakeViewport extends EventTarget {
@@ -23,13 +23,30 @@ class FakeTerminalHost extends EventTarget {
 
 class FakeTouchLayer extends EventTarget {}
 
-function touchEvent(type: string, y: number, touches = [{ pageY: y }]): Event {
-  const event = new Event(type, { bubbles: true, cancelable: type === "touchmove" });
+function touchEvent(
+  type: string,
+  y: number,
+  touches = [{ clientX: 24, clientY: y, pageX: 24, pageY: y }],
+  cancelable = type === "touchmove"
+): Event {
+  const event = new Event(type, { bubbles: true, cancelable });
   Object.defineProperty(event, "touches", { value: touches });
+  Object.defineProperty(event, "changedTouches", { value: touches });
+  return event;
+}
+
+function clickEvent(x: number, y: number): Event {
+  const event = new Event("click", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clientX", { value: x });
+  Object.defineProperty(event, "clientY", { value: y });
   return event;
 }
 
 describe("terminal touch scrolling", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("scrolls xterm's viewport from a drag on terminal text", () => {
     const viewport = new FakeViewport();
     const host = new FakeTerminalHost(viewport);
@@ -121,6 +138,129 @@ describe("terminal touch scrolling", () => {
 
     touchLayer.dispatchEvent(touchEvent("touchend", 220, []));
     expect(focusCount).toBe(1);
+
+    cleanup();
+  });
+
+  it("reports completed tap coordinates when requested", () => {
+    const viewport = new FakeViewport();
+    const host = new FakeTerminalHost(viewport);
+    const touchLayer = new FakeTouchLayer();
+    const taps: Array<{ clientX: number; clientY: number }> = [];
+
+    const cleanup = bindTerminalTouchScroll(
+      touchLayer as unknown as HTMLElement,
+      host as unknown as HTMLElement,
+      undefined,
+      {
+        onTap: (point) => taps.push(point)
+      }
+    );
+
+    touchLayer.dispatchEvent(touchEvent("touchstart", 220, [{ clientX: 33, clientY: 220, pageX: 33, pageY: 220 }]));
+    touchLayer.dispatchEvent(touchEvent("touchend", 220, [{ clientX: 33, clientY: 220, pageX: 33, pageY: 220 }]));
+
+    expect(taps).toEqual([{ clientX: 33, clientY: 220 }]);
+
+    cleanup();
+  });
+
+  it("suppresses the synthetic click after a completed touch tap", () => {
+    const viewport = new FakeViewport();
+    const host = new FakeTerminalHost(viewport);
+    const touchLayer = new FakeTouchLayer();
+    const taps: Array<{ clientX: number; clientY: number }> = [];
+
+    const cleanup = bindTerminalTouchScroll(
+      touchLayer as unknown as HTMLElement,
+      host as unknown as HTMLElement,
+      undefined,
+      {
+        onTap: (point) => taps.push(point)
+      }
+    );
+
+    touchLayer.dispatchEvent(touchEvent("touchstart", 220, [{ clientX: 33, clientY: 220, pageX: 33, pageY: 220 }]));
+    touchLayer.dispatchEvent(touchEvent("touchend", 220, [{ clientX: 33, clientY: 220, pageX: 33, pageY: 220 }]));
+    touchLayer.dispatchEvent(clickEvent(33, 220));
+
+    expect(taps).toEqual([{ clientX: 33, clientY: 220 }]);
+
+    cleanup();
+  });
+
+  it("prevents the browser tap event after a handled touch tap", () => {
+    const viewport = new FakeViewport();
+    const host = new FakeTerminalHost(viewport);
+    const touchLayer = new FakeTouchLayer();
+
+    const cleanup = bindTerminalTouchScroll(
+      touchLayer as unknown as HTMLElement,
+      host as unknown as HTMLElement,
+      undefined,
+      {
+        onTap: () => undefined
+      }
+    );
+
+    touchLayer.dispatchEvent(touchEvent("touchstart", 220));
+    const end = touchEvent("touchend", 220, [], true);
+    touchLayer.dispatchEvent(end);
+
+    expect(end.defaultPrevented).toBe(true);
+
+    cleanup();
+  });
+
+  it("still reports direct click coordinates without a preceding touch", () => {
+    const viewport = new FakeViewport();
+    const host = new FakeTerminalHost(viewport);
+    const touchLayer = new FakeTouchLayer();
+    const taps: Array<{ clientX: number; clientY: number }> = [];
+
+    const cleanup = bindTerminalTouchScroll(
+      touchLayer as unknown as HTMLElement,
+      host as unknown as HTMLElement,
+      undefined,
+      {
+        onTap: (point) => taps.push(point)
+      }
+    );
+
+    touchLayer.dispatchEvent(clickEvent(44, 210));
+
+    expect(taps).toEqual([{ clientX: 44, clientY: 210 }]);
+
+    cleanup();
+  });
+
+  it("turns a long press drag into selection callbacks instead of scroll", () => {
+    vi.useFakeTimers();
+    const viewport = new FakeViewport();
+    const host = new FakeTerminalHost(viewport);
+    const touchLayer = new FakeTouchLayer();
+    const events: string[] = [];
+
+    const cleanup = bindTerminalTouchScroll(
+      touchLayer as unknown as HTMLElement,
+      host as unknown as HTMLElement,
+      undefined,
+      {
+        onSelectionEnd: (point) => events.push(`end:${point.clientY}`),
+        onSelectionMove: (point) => events.push(`move:${point.clientY}`),
+        onSelectionStart: (point) => events.push(`start:${point.clientY}`)
+      }
+    );
+
+    touchLayer.dispatchEvent(touchEvent("touchstart", 220));
+    vi.advanceTimersByTime(420);
+    const move = touchEvent("touchmove", 172);
+    touchLayer.dispatchEvent(move);
+    touchLayer.dispatchEvent(touchEvent("touchend", 172, [{ clientX: 24, clientY: 172, pageX: 24, pageY: 172 }]));
+
+    expect(events).toEqual(["start:220", "move:172", "end:172"]);
+    expect(viewport.scrollTop).toBe(0);
+    expect(move.defaultPrevented).toBe(true);
 
     cleanup();
   });
