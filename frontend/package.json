@@ -12,6 +12,7 @@
     "lint": "eslint src --max-warnings=0"
   },
   "dependencies": {
+    "@opencozy/mobile-xterm": "0.1.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "lucide-react": "^0.468.0",

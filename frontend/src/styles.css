@@ -225,18 +225,38 @@ button:disabled {
   border: 0;
   caret-color: transparent;
   color: transparent;
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 16px;
-  height: 1px;
-  left: 8px;
-  opacity: 0.01;
+  height: calc(202px + var(--oc-safe-bottom, 0px));
+  left: 0;
+  line-height: 22px;
+  opacity: 1;
   outline: 0;
   overflow: hidden;
   padding: 0;
+  pointer-events: auto;
   position: absolute;
   resize: none;
-  top: 8px;
-  width: 1px;
-  z-index: 1;
+  bottom: 0;
+  touch-action: auto;
+  transform-origin: left top;
+  -webkit-touch-callout: default;
+  -webkit-text-fill-color: transparent;
+  -webkit-user-select: text;
+  user-select: text;
+  white-space: pre-wrap;
+  width: 100%;
+  z-index: 31;
+}
+
+.terminalKeyboardInput::selection {
+  background: rgb(47 111 88 / 0.46);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.terminalKeyboardInput--interactive {
+  pointer-events: auto;
 }
 
 .terminalSurface {
@@ -255,6 +275,10 @@ button:disabled {
   position: absolute;
   top: 0;
   z-index: 24;
+}
+
+.terminalOutputFrame--keyboardFocused .terminalVisualCursor {
+  display: none !important;
 }
 
 .terminalLoadingState {
@@ -374,12 +398,7 @@ button:disabled {
 
 .terminalComposeZone {
   align-items: flex-end;
-  background: linear-gradient(
-    to top,
-    rgb(143 208 165 / 0.09),
-    rgb(143 208 165 / 0.045) 44%,
-    transparent 76%
-  );
+  background: transparent;
   border: 0;
   border-radius: 0;
   bottom: 0;
@@ -390,31 +409,66 @@ button:disabled {
   left: 0;
   min-height: 0;
   padding: 0 0 calc(16px + var(--oc-safe-bottom, 0px));
-  pointer-events: auto;
+  pointer-events: none;
   position: absolute;
   right: 0;
-  touch-action: manipulation;
+  touch-action: none;
   width: auto;
-  z-index: 30;
+  z-index: 21;
 }
 
 .terminalComposeZone:active {
-  background: linear-gradient(
-    to top,
-    rgb(143 208 165 / 0.14),
-    rgb(143 208 165 / 0.07) 44%,
-    transparent 76%
-  );
+  background: transparent;
   color: rgb(241 245 239 / 0.3);
 }
 
 .terminalComposeZone--followPaused {
-  background: linear-gradient(
-    to top,
-    rgb(143 208 165 / 0.16),
-    rgb(143 208 165 / 0.076) 48%,
-    transparent 78%
-  );
+  background: transparent;
+}
+
+.terminalReturnToBottom {
+  background: var(--oc-control-bg);
+  border: 1px solid var(--oc-control-border);
+  border-radius: 999px;
+  bottom: calc(18px + var(--oc-safe-bottom, 0px));
+  color: var(--oc-control-fg);
+  height: 42px;
+  left: 50%;
+  min-height: 42px;
+  min-width: 42px;
+  padding: 0;
+  position: absolute;
+  touch-action: manipulation;
+  transform: translateX(-50%);
+  width: 42px;
+  z-index: 36;
+}
+
+.terminalReturnToBottom:active {
+  background: var(--oc-control-active-bg);
+}
+
+.terminalSelectionCopy {
+  background: var(--oc-control-bg);
+  border: 1px solid var(--oc-control-border);
+  border-radius: 999px;
+  color: var(--oc-control-fg);
+  font-size: 13px;
+  font-weight: 700;
+  gap: 6px;
+  height: 38px;
+  left: 50%;
+  min-height: 38px;
+  padding: 0 13px;
+  position: absolute;
+  touch-action: manipulation;
+  top: calc(52px + var(--oc-safe-top, 0px));
+  transform: translateX(-50%);
+  z-index: 37;
+}
+
+.terminalSelectionCopy:active {
+  background: var(--oc-control-active-bg);
 }
 
 .arrowPad {
@@ -531,6 +585,38 @@ button:disabled {
 
 .sessionNameSheet {
   max-width: 430px;
+}
+
+.settingsSheet {
+  max-width: 430px;
+}
+
+.settingsList {
+  display: grid;
+  gap: 8px;
+}
+
+.settingRow {
+  align-items: center;
+  background: rgb(15 21 17 / 0.52);
+  border: 1px solid rgb(143 208 165 / 0.14);
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 12px;
+}
+
+.settingRow span {
+  color: rgb(241 245 239 / 0.9);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.settingRow input {
+  accent-color: #8fd0a5;
+  height: 22px;
+  width: 22px;
 }
 
 .sessionNameForm {
