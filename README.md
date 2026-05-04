@@ -8,6 +8,13 @@ It starts Codex in a PTY on the Codex Host and streams the terminal into a mobil
 
 > Agents: start with [AGENTS.md](AGENTS.md). Humans: this README is the map.
 
+## Preview
+
+<p>
+  <img src="docs/assets/opencozy-codex-start.png" alt="OpenCozy showing a Codex terminal on a phone" width="320">
+  <img src="docs/assets/opencozy-mobile-session.png" alt="OpenCozy mobile session with terminal controls" width="320">
+</p>
+
 ## Install
 
 OpenCozy has two pieces:
