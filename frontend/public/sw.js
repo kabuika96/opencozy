@@ -1,4 +1,4 @@
-const CACHE_NAME = "opencozy-shell-v3";
+const CACHE_NAME = "opencozy-shell-v5";
 const SHELL_ASSETS = ["/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
