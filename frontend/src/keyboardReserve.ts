@@ -15,10 +15,30 @@ type KeyboardWindow = KeyboardEventTarget & {
   visualViewport?: KeyboardViewport | null;
 };
 
+type BindKeyboardReserveOptions = {
+  onKeyboardHidden?: () => void;
+};
+
 const MIN_KEYBOARD_PX = 260;
 const MAX_KEYBOARD_PHONE_PX = 430;
 const MAX_KEYBOARD_TABLET_PX = 380;
 const KEYBOARD_THRESHOLD_PX = 80;
+
+type KeyboardReserveState = {
+  activeCount: number;
+};
+
+const keyboardReserveStates = new WeakMap<object, KeyboardReserveState>();
+
+function keyboardReserveState(win: KeyboardWindow): KeyboardReserveState {
+  let state = keyboardReserveStates.get(win.document);
+  if (!state) {
+    state = { activeCount: 0 };
+    keyboardReserveStates.set(win.document, state);
+  }
+
+  return state;
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -48,37 +68,70 @@ function fallbackKeyboardHeight(win: KeyboardWindow, baselineHeight: number): nu
   return clamp(baselineHeight * ratio, MIN_KEYBOARD_PX, max);
 }
 
-export function bindKeyboardReserve(input: KeyboardEventTarget, win: KeyboardWindow = window): () => void {
+export function bindKeyboardReserve(
+  input: KeyboardEventTarget,
+  win: KeyboardWindow = window,
+  options: BindKeyboardReserveOptions = {}
+): () => void {
   const rootStyle = win.document.documentElement.style;
+  const state = keyboardReserveState(win);
   let active = false;
   let baselineHeight = layoutHeight(win);
+  let hadViewportKeyboardSignal = false;
+  let keyboardVisible = false;
 
   const setReserve = (value: number) => {
     rootStyle.setProperty("--oc-keyboard-reserve", px(value));
+  };
+
+  const setKeyboardVisible = (visible: boolean) => {
+    if (keyboardVisible === visible) {
+      return;
+    }
+
+    keyboardVisible = visible;
+    if (!visible) {
+      options.onKeyboardHidden?.();
+    }
   };
 
   const update = () => {
     const currentHeight = layoutHeight(win);
     if (!active) {
       baselineHeight = Math.max(baselineHeight, currentHeight);
-      setReserve(0);
+      if (state.activeCount === 0) {
+        setReserve(0);
+      }
+      setKeyboardVisible(false);
       return;
     }
 
     const layoutAlreadyResized = baselineHeight - currentHeight > KEYBOARD_THRESHOLD_PX;
     if (layoutAlreadyResized) {
+      hadViewportKeyboardSignal = true;
       setReserve(0);
+      setKeyboardVisible(true);
       return;
     }
 
     const visualHeight = win.visualViewport?.height ?? currentHeight;
     const measuredReserve = baselineHeight - visualHeight;
     if (measuredReserve > KEYBOARD_THRESHOLD_PX) {
+      hadViewportKeyboardSignal = true;
       setReserve(Math.max(measuredReserve, fallbackKeyboardHeight(win, baselineHeight)));
+      setKeyboardVisible(true);
       return;
     }
 
-    setReserve(hasTouchKeyboard(win) ? fallbackKeyboardHeight(win, baselineHeight) : 0);
+    if (hadViewportKeyboardSignal) {
+      setReserve(0);
+      setKeyboardVisible(false);
+      return;
+    }
+
+    const fallbackReserve = hasTouchKeyboard(win) ? fallbackKeyboardHeight(win, baselineHeight) : 0;
+    setReserve(fallbackReserve);
+    setKeyboardVisible(fallbackReserve > 0);
   };
 
   const updateSoon = () => {
@@ -87,14 +140,34 @@ export function bindKeyboardReserve(input: KeyboardEventTarget, win: KeyboardWin
     win.setTimeout(update, 280);
   };
 
-  const handleFocus = () => {
+  const activate = () => {
+    if (active) {
+      return;
+    }
+
     active = true;
+    state.activeCount += 1;
+  };
+
+  const deactivate = () => {
+    if (!active) {
+      return;
+    }
+
+    active = false;
+    state.activeCount = Math.max(0, state.activeCount - 1);
+  };
+
+  const handleFocus = () => {
+    activate();
+    hadViewportKeyboardSignal = false;
     baselineHeight = Math.max(baselineHeight, layoutHeight(win));
     updateSoon();
   };
 
   const handleBlur = () => {
-    active = false;
+    deactivate();
+    hadViewportKeyboardSignal = false;
     updateSoon();
   };
 
@@ -119,6 +192,10 @@ export function bindKeyboardReserve(input: KeyboardEventTarget, win: KeyboardWin
     win.removeEventListener("orientationchange", handleOrientationChange);
     win.visualViewport?.removeEventListener("resize", updateSoon);
     win.visualViewport?.removeEventListener("scroll", updateSoon);
-    setReserve(0);
+    deactivate();
+    if (state.activeCount === 0) {
+      setReserve(0);
+    }
+    setKeyboardVisible(false);
   };
 }

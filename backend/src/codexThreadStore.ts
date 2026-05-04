@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -11,7 +11,11 @@ export type CodexThreadSummary = {
 type CodexThreadRow = {
   id: string;
   title: string | null;
+  first_user_message?: string | null;
+  rollout_path?: string | null;
 };
+
+const ROLLOUT_TAIL_READ_BYTES = 2_000_000;
 
 export function defaultCodexStateDbPath(): string {
   return path.join(process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"), "state_5.sqlite");
@@ -46,8 +50,60 @@ export class CodexThreadStore {
     });
   }
 
+  findThreadByFirstUserMessage(cwd: string, sinceMs: number, firstUserMessage: string): CodexThreadSummary | null {
+    const normalizedPrompt = normalizeMatchText(firstUserMessage);
+    if (!normalizedPrompt) {
+      return null;
+    }
+
+    return this.read((db) => {
+      const rows = db
+        .prepare(`
+          SELECT id, title, first_user_message
+          FROM threads
+          WHERE archived = 0
+            AND cwd = ?
+            AND COALESCE(created_at_ms, created_at * 1000) >= ?
+            AND first_user_message != ''
+          ORDER BY COALESCE(created_at_ms, created_at * 1000) DESC,
+            COALESCE(updated_at_ms, updated_at * 1000) DESC
+          LIMIT 20
+        `)
+        .all(cwd, sinceMs) as CodexThreadRow[];
+
+      const matches = rows.filter((row) => normalizeMatchText(row.first_user_message || "") === normalizedPrompt);
+      return matches.length === 1 ? { id: matches[0].id, title: matches[0].title || "" } : null;
+    });
+  }
+
+  findThreadByRecentUserMessage(cwd: string, sinceMs: number, userMessage: string): CodexThreadSummary | null {
+    const normalizedMessage = normalizeMatchText(userMessage);
+    if (!normalizedMessage) {
+      return null;
+    }
+
+    return this.read((db) => {
+      const rows = db
+        .prepare(`
+          SELECT id, title, rollout_path
+          FROM threads
+          WHERE archived = 0
+            AND cwd = ?
+            AND COALESCE(updated_at_ms, updated_at * 1000) >= ?
+            AND rollout_path != ''
+          ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC,
+            COALESCE(created_at_ms, created_at * 1000) DESC
+          LIMIT 20
+        `)
+        .all(cwd, sinceMs) as CodexThreadRow[];
+
+      const matches = rows.filter((row) => row.rollout_path && rolloutContainsUserMessage(row.rollout_path, normalizedMessage));
+      return matches.length === 1 ? { id: matches[0].id, title: matches[0].title || "" } : null;
+    });
+  }
+
   findThreadInText(cwd: string, text: string): CodexThreadSummary | null {
-    const normalizedText = normalizeTitleMatchText(text);
+    const normalizedText = normalizeMatchText(text);
     if (!normalizedText) {
       return null;
     }
@@ -115,12 +171,98 @@ export class CodexThreadStore {
   }
 }
 
-function normalizeTitleMatchText(text: string): string {
+function normalizeMatchText(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function readFileTail(filePath: string): string {
+  if (!existsSync(filePath)) {
+    return "";
+  }
+
+  let fileDescriptor: number | null = null;
+  try {
+    fileDescriptor = openSync(filePath, "r");
+    const size = fstatSync(fileDescriptor).size;
+    const length = Math.min(size, ROLLOUT_TAIL_READ_BYTES);
+    const buffer = Buffer.alloc(length);
+    readSync(fileDescriptor, buffer, 0, length, size - length);
+    return buffer.toString("utf8");
+  } catch {
+    return "";
+  } finally {
+    if (fileDescriptor !== null) {
+      closeSync(fileDescriptor);
+    }
+  }
+}
+
+function rolloutContainsUserMessage(rolloutPath: string, normalizedMessage: string): boolean {
+  const content = readFileTail(rolloutPath);
+  if (!content) {
+    return false;
+  }
+
+  for (const line of content.split(/\r?\n/)) {
+    if (!line.includes("user_message") && !line.includes("input_text")) {
+      continue;
+    }
+
+    const userMessages = extractRolloutUserMessages(line);
+    if (userMessages.some((message) => normalizeMatchText(message) === normalizedMessage)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function extractRolloutUserMessages(line: string): string[] {
+  try {
+    const entry = JSON.parse(line) as Record<string, unknown>;
+    const payload = entry.payload as Record<string, unknown> | undefined;
+    if (!payload) {
+      return [];
+    }
+
+    if (entry.type === "event_msg" && payload.type === "user_message" && typeof payload.message === "string") {
+      return [payload.message];
+    }
+
+    if (entry.type === "response_item" && payload.type === "message" && payload.role === "user") {
+      return extractTextContent(payload.content);
+    }
+  } catch {
+    return [];
+  }
+
+  return [];
+}
+
+function extractTextContent(content: unknown): string[] {
+  if (typeof content === "string") {
+    return [content];
+  }
+
+  if (!Array.isArray(content)) {
+    return [];
+  }
+
+  const messages: string[] = [];
+  for (const item of content) {
+    if (typeof item === "object" && item !== null) {
+      const record = item as Record<string, unknown>;
+      if (record.type === "input_text" && typeof record.text === "string") {
+        messages.push(record.text);
+      }
+    }
+  }
+
+  return messages;
+}
+
 function titleMatchesText(title: string, normalizedText: string): boolean {
-  const normalizedTitle = normalizeTitleMatchText(title);
+  const normalizedTitle = normalizeMatchText(title);
   if (!normalizedTitle) {
     return false;
   }

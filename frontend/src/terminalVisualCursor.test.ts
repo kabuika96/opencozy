@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import styles from "./styles.css?raw";
 import { getTerminalVisualCursorStyle } from "./terminalVisualCursor";
 
 describe("terminal visual cursor", () => {
@@ -43,5 +44,9 @@ describe("terminal visual cursor", () => {
         viewportY: 0
       })
     ).toEqual({ display: "none" });
+  });
+
+  it("keeps the OpenCozy cursor visible while the native keyboard input is focused", () => {
+    expect(styles).not.toContain(".terminalOutputFrame--keyboardFocused .terminalVisualCursor");
   });
 });

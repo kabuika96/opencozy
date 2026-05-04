@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMobileInputGeometry } from "./mobileInputGeometry";
+import { getMobileInputGeometry, getMobileInputSelectionRects } from "./mobileInputGeometry";
 
 const baseInput = {
   cols: 80,
@@ -97,5 +97,55 @@ describe("mobile input geometry", () => {
 
   it("returns null when terminal dimensions are unavailable", () => {
     expect(getMobileInputGeometry({ ...baseInput, cols: 0 })).toBeNull();
+  });
+
+  it("returns no custom selection rectangles for a collapsed native input selection", () => {
+    expect(getMobileInputSelectionRects({
+      ...baseInput,
+      selectionEnd: 2,
+      selectionStart: 2
+    })).toEqual([]);
+  });
+
+  it("maps a native input selection to terminal cell rectangles", () => {
+    expect(getMobileInputSelectionRects({
+      ...baseInput,
+      inputCursor: 5,
+      inputLength: 5,
+      selectionEnd: 4,
+      selectionStart: 1
+    })).toEqual([
+      {
+        height: 20,
+        left: 118,
+        top: 408,
+        width: 30
+      }
+    ]);
+  });
+
+  it("splits wrapped native input selections across terminal rows", () => {
+    expect(getMobileInputSelectionRects({
+      ...baseInput,
+      cursorX: 10,
+      cursorY: 21,
+      inputCursor: 20,
+      inputLength: 30,
+      selectionEnd: 22,
+      selectionStart: 8
+    })).toEqual([
+      {
+        height: 20,
+        left: 788,
+        top: 408,
+        width: 20
+      },
+      {
+        height: 20,
+        left: 8,
+        top: 428,
+        width: 120
+      }
+    ]);
   });
 });

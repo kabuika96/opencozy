@@ -10,11 +10,60 @@ import { parseAppShortcutInput, parseCreateOpenCozySessionInput, parseRenameOpen
 type RouteParams = {
   id: string;
 };
+type SessionListQuery = {
+  deviceId?: string;
+  tabId?: string | string[];
+};
 
 function readRouteId(requestUrl: string): string | null {
   const pathname = new URL(requestUrl, "http://opencozy.local").pathname;
   const match = /^\/api\/open-cozy-sessions\/([^/]+)\/socket\/?$/.exec(pathname);
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+export function shouldReplaySessionHistory(requestUrl: string): boolean {
+  const replay = new URL(requestUrl, "http://opencozy.local").searchParams.get("replay");
+  return replay !== "0" && replay !== "false";
+}
+
+function readDeviceIdQuery(value: unknown): string {
+  if (value === undefined) {
+    throw new Error("deviceId is required");
+  }
+
+  if (typeof value !== "string") {
+    throw new Error("deviceId must be a non-empty string when provided");
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("deviceId must be a non-empty string when provided");
+  }
+
+  return trimmed;
+}
+
+function readTabIdsQuery(value: unknown): string[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  const values = Array.isArray(value) ? value : [value];
+  const tabIds: string[] = [];
+  const seen = new Set<string>();
+  for (const item of values) {
+    if (typeof item !== "string" || !item.trim()) {
+      throw new Error("tabId must be a non-empty string when provided");
+    }
+
+    const tabId = item.trim();
+    if (!seen.has(tabId)) {
+      seen.add(tabId);
+      tabIds.push(tabId);
+    }
+  }
+
+  return tabIds;
 }
 
 export function buildServer(config: OpenCozyConfig = readConfig()) {
@@ -37,7 +86,7 @@ export function buildServer(config: OpenCozyConfig = readConfig()) {
       const params = request.params as Partial<RouteParams> | undefined;
       const sessionId = params?.id ?? readRouteId(request.url);
 
-      if (!sessionId || !terminalSessions.attach(sessionId, socket)) {
+      if (!sessionId || !terminalSessions.attach(sessionId, socket, { replayHistory: shouldReplaySessionHistory(request.url) })) {
         socket.close(1008, "OpenCozy session not found");
       }
     });
@@ -85,7 +134,19 @@ export function buildServer(config: OpenCozyConfig = readConfig()) {
     return reply.code(204).send();
   });
 
-  app.get("/api/open-cozy-sessions", async () => terminalSessions.list());
+  app.get<{ Querystring: SessionListQuery }>("/api/open-cozy-sessions", async (request, reply) => {
+    let deviceId: string;
+    let tabIds: string[];
+    try {
+      deviceId = readDeviceIdQuery(request.query.deviceId);
+      tabIds = readTabIdsQuery(request.query.tabId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid deviceId";
+      return reply.code(400).send({ error: message });
+    }
+
+    return terminalSessions.list({ deviceId, tabIds });
+  });
 
   app.post("/api/open-cozy-sessions", async (request, reply) => {
     const parsed = parseCreateOpenCozySessionInput(request.body);

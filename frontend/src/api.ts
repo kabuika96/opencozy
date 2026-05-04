@@ -17,6 +17,11 @@ export type RenameOpenCozySessionInput = {
   name: string;
 };
 
+export type ListOpenCozySessionsOptions = {
+  deviceId: string;
+  tabIds?: string[];
+};
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body !== undefined && !headers.has("Content-Type")) {
@@ -44,8 +49,14 @@ export function getCodexCapabilities(): Promise<CodexCapabilities> {
   return request<CodexCapabilities>("/api/codex");
 }
 
-export function listOpenCozySessions(): Promise<OpenCozySessionSummary[]> {
-  return request<OpenCozySessionSummary[]>("/api/open-cozy-sessions");
+export function listOpenCozySessions(options: ListOpenCozySessionsOptions): Promise<OpenCozySessionSummary[]> {
+  const params = new URLSearchParams();
+  params.set("deviceId", options.deviceId);
+  for (const tabId of options.tabIds ?? []) {
+    params.append("tabId", tabId);
+  }
+
+  return request<OpenCozySessionSummary[]>(`/api/open-cozy-sessions?${params.toString()}`);
 }
 
 export function createOpenCozySession(mode: OpenCozySessionMode, options: CreateOpenCozySessionOptions = {}): Promise<OpenCozySessionSummary> {

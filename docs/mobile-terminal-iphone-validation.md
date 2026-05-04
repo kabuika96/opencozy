@@ -21,7 +21,7 @@ At the time this checklist was written, the app responded at `http://10.0.0.158:
 - [ ] Selection and normalized copy work across output, prompts, and active input.
 - [ ] Manual scroll and selection pause auto-scroll.
 - [ ] The floating down-chevron appears whenever away from bottom and restores follow-bottom.
-- [ ] Arrow/Enter controls appear whenever native input is not focused.
+- [ ] Arrow/Enter controls remain visible across native keyboard focus states.
 - [ ] Non-input taps and contextual arrow/Enter fallback behave correctly in Codex picker/menu flows.
 - [ ] Per-device autocorrect and autocapitalization settings work on the iPhone.
 
@@ -30,12 +30,12 @@ At the time this checklist was written, the app responded at `http://10.0.0.158:
 Automated checks currently cover the code paths, not the iOS runtime behavior. `npm run check` passed after the latest interaction fixes, covering lint, unit tests, and production builds for the mobile xterm package, backend, and frontend.
 
 - Typing, paste, Return, deletion, replacement, and native caret selection diffs are covered by `frontend/src/mobileInputBridge.test.ts`.
-- Native input hit-area placement over terminal-rendered input rows, including exact wrap-boundary caret rows, is covered by `frontend/src/mobileInputGeometry.test.ts`.
+- Native input hit-area placement and custom input-selection highlight rectangles over terminal-rendered input rows, including exact wrap-boundary caret rows, are covered by `frontend/src/mobileInputGeometry.test.ts`.
 - Per-device autocorrect and autocapitalization defaults and persistence are covered by `frontend/src/mobileTerminalPreferences.test.ts`.
 - Normalized copy and paste text handling are covered by `frontend/src/terminalClipboard.test.ts`.
 - Touch scrolling, tap forwarding, long-press selection callbacks, synthetic click suppression, and return-to-bottom scroll ownership are covered by `frontend/src/terminalTouchScroll.test.ts`.
 - Native text-editing gestures are allowed through the app scroll lock in `frontend/src/outerScrollLock.test.ts`.
-- Contextual arrow/Enter visibility is covered by `frontend/src/terminalControls.test.ts`.
+- Persistent arrow/Enter visibility is covered by `frontend/src/terminalControls.test.ts`.
 - Terminal hit testing, tap forwarding, and buffer-range selection are covered by `packages/mobile-xterm/src/index.test.ts`.
 
 The unchecked acceptance criteria above must stay unchecked until the same behavior is confirmed on a real iPhone against a live Codex session.
@@ -63,7 +63,7 @@ The helper only records pass/fail/skip notes into `.scratch/`; it does not start
 7. Paste text from the iOS clipboard into the prompt.
    - Expected: pasted text appears as ordinary input; no OpenCozy paste button or confirmation appears.
 8. Long-press and drag-select terminal output, prompt text, and active input text, then copy.
-   - Expected: selection feels native enough for iPhone use, and copied text is readable without terminal padding or line-ending artifacts.
+   - Expected: selection feels native enough for iPhone use, selected active input text has a visible highlight, and copied text is readable without terminal padding or line-ending artifacts.
 9. Trigger streaming output, then manually scroll away from the bottom.
    - Expected: auto-scroll pauses and output no longer pulls the viewport down.
 10. While output is streaming, start a text selection.
@@ -72,8 +72,8 @@ The helper only records pass/fail/skip notes into `.scratch/`; it does not start
     - Expected: the floating down-chevron appears.
 12. Tap the floating down-chevron.
     - Expected: the terminal returns to bottom and follow-bottom resumes.
-13. Dismiss or blur the native input.
-    - Expected: the arrow/Enter controls appear on the right end immediately.
+13. Focus and blur the native input.
+    - Expected: the arrow/Enter controls remain visible on the right end while the keyboard is open and after the input is blurred.
 14. Enter a Codex picker/menu flow where terminal mouse tracking may or may not be active.
     - Expected: non-input taps use terminal-native behavior when supported; otherwise the arrow/Enter controls appear as fallback without explanatory text.
 15. Open app settings and toggle autocorrect and autocapitalization independently.
@@ -107,6 +107,8 @@ Follow-up implemented after those findings:
 - The app-level outer scroll lock now yields to native text-editing elements, so iOS textarea gestures such as text selection handles and spacebar-trackpad caret movement are not prevented by the page scroll guard.
 - The terminal touch layer now prevents the browser's synthetic post-touch click after handled taps, reducing keyboard focus/blur flicker after input-zone taps and viewport reflow.
 - The iOS input bridge textarea is now dynamically positioned over the inferred terminal-rendered input text rows, rather than the whole bottom input zone, and stays touch-interactive on that text so native taps, double-taps, and selection handles can target active input text.
-- The native textarea keeps iOS's 16px input font size but is scaled to the terminal's 14px visual metrics, so tap hit testing, word selection, and selection expansion better align with the terminal-rendered prompt. Native selection highlight remains visible while native text and the native caret stay transparent; the terminal-rendered cursor remains the visible editing signal.
+- The native textarea keeps iOS's 16px input font size but is scaled to the terminal's 14px visual metrics, so tap hit testing, word selection, and selection expansion better align with the terminal-rendered prompt. Native text and the native caret stay transparent; the terminal-rendered cursor remains the visible editing signal.
 - Range-only native selection changes no longer emit terminal cursor movement. This keeps iOS selection-handle drags local until the selection collapses or text changes, avoiding PTY cursor redraws that can move the opposite handle. The extra OpenCozy visual cursor is hidden while the native input bridge is focused to reduce duplicate cursor affordances.
-- The arrow/Enter pad now appears whenever the native input is not focused, and non-input taps explicitly blur the native input before terminal tap handling. The native textarea caret is transparent again so wrapped input uses the terminal-rendered cursor as the only visible caret, avoiding browser/xterm caret mismatch at line wraps.
+- Active input selections now render an OpenCozy-owned highlight overlay from the native textarea selection range, so selected text remains visually highlighted even when iOS does not paint selection over transparent textarea text.
+- The arrow/Enter pad now remains visible across native keyboard focus states, and non-input taps explicitly blur the native input before terminal tap handling. The native textarea caret is transparent again so wrapped input uses the terminal-rendered cursor as the only visible caret, avoiding browser/xterm caret mismatch at line wraps.
+- The OpenCozy-owned visual cursor remains visible while the native input bridge is focused, and the xterm canvas cursor is transparent to avoid duplicate caret signals.

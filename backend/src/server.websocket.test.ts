@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildServer } from "./server.js";
+import { buildServer, shouldReplaySessionHistory } from "./server.js";
 
 const servers: Array<ReturnType<typeof buildServer>> = [];
 
@@ -43,6 +43,8 @@ function createCodexStateDb(dir: string): string {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       archived INTEGER NOT NULL DEFAULT 0,
+      first_user_message TEXT NOT NULL DEFAULT '',
+      rollout_path TEXT NOT NULL DEFAULT '',
       created_at_ms INTEGER,
       updated_at_ms INTEGER
     );
@@ -51,21 +53,36 @@ function createCodexStateDb(dir: string): string {
   return dbPath;
 }
 
-function insertCodexThread(dbPath: string, input: { id: string; title: string; cwd: string; updatedAtMs: number }): void {
+function insertCodexThread(dbPath: string, input: { id: string; title: string; cwd: string; updatedAtMs: number; firstUserMessage?: string; rolloutPath?: string }): void {
   const db = new DatabaseSync(dbPath);
   db
-    .prepare("INSERT INTO threads (id, title, cwd, created_at, updated_at, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(input.id, input.title, input.cwd, 1, 1, input.updatedAtMs, input.updatedAtMs);
+    .prepare("INSERT INTO threads (id, title, cwd, first_user_message, rollout_path, created_at, updated_at, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(input.id, input.title, input.cwd, input.firstUserMessage || "", input.rolloutPath || "", 1, 1, input.updatedAtMs, input.updatedAtMs);
   db.close();
 }
 
-async function waitForSessionExit(server: ReturnType<typeof buildServer>, id: string): Promise<void> {
+function writeCodexRollout(dir: string, fileName: string, userMessage: string): string {
+  const rolloutPath = path.join(dir, fileName);
+  writeFileSync(
+    rolloutPath,
+    `${JSON.stringify({
+      type: "event_msg",
+      payload: {
+        type: "user_message",
+        message: userMessage
+      }
+    })}\n`
+  );
+  return rolloutPath;
+}
+
+async function waitForSessionExit(server: ReturnType<typeof buildServer>, id: string, deviceId: string): Promise<void> {
   const deadline = Date.now() + 1_000;
 
   while (Date.now() < deadline) {
     const listResponse = await server.inject({
       method: "GET",
-      url: "/api/open-cozy-sessions"
+      url: `/api/open-cozy-sessions?deviceId=${deviceId}`
     });
     const sessions = listResponse.json<Array<{ id: string; status: string }>>();
     if (sessions.some((session) => session.id === id && session.status === "exited")) {
@@ -81,6 +98,12 @@ async function waitForSessionExit(server: ReturnType<typeof buildServer>, id: st
 }
 
 describe("OpenCozy session WebSocket route", () => {
+  it("replays history by default and allows same-page reconnects to opt out", () => {
+    expect(shouldReplaySessionHistory("/api/open-cozy-sessions/session-1/socket")).toBe(true);
+    expect(shouldReplaySessionHistory("/api/open-cozy-sessions/session-1/socket?replay=0")).toBe(false);
+    expect(shouldReplaySessionHistory("/api/open-cozy-sessions/session-1/socket?replay=false")).toBe(false);
+  });
+
   it("attaches to a created session and sends initial status", async () => {
     const fixture = makeTestCodexBin();
     const server = buildServer({
@@ -134,6 +157,73 @@ describe("OpenCozy session WebSocket route", () => {
     });
   });
 
+  it("lists only sessions for the requested device", async () => {
+    const fixture = makeTestCodexBin();
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const unscopedListResponse = await server.inject({
+      method: "GET",
+      url: "/api/open-cozy-sessions"
+    });
+    expect(unscopedListResponse.statusCode).toBe(400);
+
+    const createSession = async (name: string, deviceId?: string) => {
+      const response = await server.inject({
+        method: "POST",
+        url: "/api/open-cozy-sessions",
+        payload: {
+          mode: "new",
+          name,
+          cwd: fixture.cwd,
+          ...(deviceId ? { deviceId } : {})
+        }
+      });
+      expect(response.statusCode).toBe(201);
+      return response.json<{ id: string; name: string }>();
+    };
+
+    const deviceOneSession = await createSession("Device One", "device-1");
+    const deviceTwoSession = await createSession("Device Two", "device-2");
+    await createSession("Unscoped Session");
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/api/open-cozy-sessions?deviceId=device-1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json<Array<{ id: string; name: string }>>()).toEqual([
+      expect.objectContaining({
+        id: deviceOneSession.id,
+        name: "Device One"
+      })
+    ]);
+
+    const explicitTabListResponse = await server.inject({
+      method: "GET",
+      url: `/api/open-cozy-sessions?deviceId=device-1&tabId=${deviceTwoSession.id}`
+    });
+    expect(explicitTabListResponse.statusCode).toBe(200);
+    expect(explicitTabListResponse.json<Array<{ id: string; name: string }>>()).toEqual([
+      expect.objectContaining({
+        id: deviceTwoSession.id,
+        name: "Device Two"
+      }),
+      expect.objectContaining({
+        id: deviceOneSession.id,
+        name: "Device One"
+      })
+    ]);
+  });
+
   it("replays a terminal exit to clients that attach after a fast failure", async () => {
     const fixture = makeTestCodexBin(["process.exit(7);"]);
     const server = buildServer({
@@ -152,13 +242,14 @@ describe("OpenCozy session WebSocket route", () => {
       url: "/api/open-cozy-sessions",
       payload: {
         mode: "new",
-        cwd: fixture.cwd
+        cwd: fixture.cwd,
+        deviceId: "device-1"
       }
     });
     expect(createResponse.statusCode).toBe(201);
 
     const session = createResponse.json<{ id: string }>();
-    await waitForSessionExit(server, session.id);
+    await waitForSessionExit(server, session.id, "device-1");
 
     const exitMessage = new Promise<{ type: string; exitCode: number }>((resolve) => {
       void server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {}, {
@@ -179,6 +270,12 @@ describe("OpenCozy session WebSocket route", () => {
   it("renames the OpenCozy session and the matching Codex resume title", async () => {
     const fixture = makeTestCodexBin();
     const codexStateDbPath = createCodexStateDb(fixture.cwd);
+    insertCodexThread(codexStateDbPath, {
+      id: "thread-1",
+      title: "Old Codex Title",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.now()
+    });
     const server = buildServer({
       host: "127.0.0.1",
       port: 0,
@@ -195,20 +292,14 @@ describe("OpenCozy session WebSocket route", () => {
       method: "POST",
       url: "/api/open-cozy-sessions",
       payload: {
-        mode: "new",
-        cwd: fixture.cwd
+        mode: "resumeLast",
+        cwd: fixture.cwd,
+        codexThreadId: "thread-1",
+        deviceId: "device-1"
       }
     });
     expect(createResponse.statusCode).toBe(201);
     const session = createResponse.json<{ id: string; name: string }>();
-
-    const createdAtMs = Date.now();
-    insertCodexThread(codexStateDbPath, {
-      id: "thread-1",
-      title: "Old Codex Title",
-      cwd: fixture.cwd,
-      updatedAtMs: createdAtMs
-    });
 
     const renameResponse = await server.inject({
       method: "PUT",
@@ -226,6 +317,80 @@ describe("OpenCozy session WebSocket route", () => {
     const verifyDb = new DatabaseSync(codexStateDbPath);
     expect(verifyDb.prepare("SELECT title FROM threads WHERE id = ?").get("thread-1")).toEqual({ title: "Release Checklist" });
     verifyDb.close();
+
+    await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}`
+    });
+  });
+
+  it("updates a new session title from the matching Codex first user message", async () => {
+    const fixture = makeTestCodexBin(["process.stdout.write('new session ready\\n');", "process.stdin.resume();"]);
+    const codexStateDbPath = createCodexStateDb(fixture.cwd);
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      codexStateDbPath
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      payload: {
+        mode: "new",
+        cwd: fixture.cwd,
+        deviceId: "device-1"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const session = createResponse.json<{ id: string; name: string; codexThreadId: string | null; createdAt: string }>();
+    expect(session).toMatchObject({ name: "Codex", codexThreadId: null });
+
+    insertCodexThread(codexStateDbPath, {
+      id: "new-thread",
+      title: "Build Settings Flow",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.parse(session.createdAt) + 1_000,
+      firstUserMessage: "build settings flow"
+    });
+
+    const updatedTitle = new Promise<{ name: string; codexThreadId: string | null }>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("New session title did not update from Codex metadata")), 3_000);
+      let submittedPrompt = false;
+
+      void server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {}, {
+        onInit: (socket) => {
+          socket.on("message", (data) => {
+            const parsed = JSON.parse(data.toString()) as {
+              type: string;
+              data?: string;
+              session?: { name: string; codexThreadId: string | null };
+            };
+
+            if (parsed.type === "output" && parsed.data?.includes("new session ready") && !submittedPrompt) {
+              submittedPrompt = true;
+              socket.send(JSON.stringify({ type: "input", data: "build settings flow\r" }));
+            }
+
+            if (parsed.type === "status" && parsed.session?.name === "Build Settings Flow") {
+              clearTimeout(timeout);
+              resolve(parsed.session);
+            }
+          });
+        }
+      });
+    });
+
+    await expect(updatedTitle).resolves.toMatchObject({
+      name: "Build Settings Flow",
+      codexThreadId: "new-thread"
+    });
 
     await server.inject({
       method: "DELETE",
@@ -266,12 +431,31 @@ describe("OpenCozy session WebSocket route", () => {
       id: "other-device-thread",
       title: "Other Device Session",
       cwd: fixture.cwd,
-      updatedAtMs: Date.now() + 10_000
+      updatedAtMs: Date.now() + 10_000,
+      firstUserMessage: "other device prompt"
+    });
+
+    const submittedPrompt = new Promise<void>((resolve) => {
+      void server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {}, {
+        onInit: (socket) => {
+          socket.on("message", (data) => {
+            const parsed = JSON.parse(data.toString()) as { type: string; data?: string };
+            if (parsed.type === "output" && parsed.data?.includes("fake codex ready")) {
+              socket.send(JSON.stringify({ type: "input", data: "phone prompt\r" }));
+              resolve();
+            }
+          });
+        }
+      });
+    });
+    await submittedPrompt;
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
     });
 
     const listResponse = await server.inject({
       method: "GET",
-      url: "/api/open-cozy-sessions"
+      url: "/api/open-cozy-sessions?deviceId=device-2"
     });
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json<Array<{ id: string; name: string; codexThreadId: string | null }>>()).toContainEqual(
@@ -419,7 +603,7 @@ describe("OpenCozy session WebSocket route", () => {
 
     const listResponse = await server.inject({
       method: "GET",
-      url: "/api/open-cozy-sessions"
+      url: "/api/open-cozy-sessions?deviceId=device-1"
     });
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json<Array<{ id: string; name: string; codexThreadId: string | null }>>()).toContainEqual(
@@ -510,6 +694,163 @@ describe("OpenCozy session WebSocket route", () => {
       name: "Selected Session",
       codexThreadId: "selected-thread"
     });
+
+    await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}`
+    });
+  });
+
+  it("updates a resumed session title from a matching post-resume user message", async () => {
+    const fixture = makeTestCodexBin(["process.stdout.write('resume ready\\n');", "process.stdin.resume();"]);
+    const codexStateDbPath = createCodexStateDb(fixture.cwd);
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      codexStateDbPath
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      payload: {
+        mode: "resume",
+        cwd: fixture.cwd,
+        deviceId: "device-1"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const session = createResponse.json<{ id: string; name: string; codexThreadId: string | null; createdAt: string }>();
+    expect(session).toMatchObject({ name: "Sessions", codexThreadId: null });
+
+    const rolloutPath = writeCodexRollout(fixture.cwd, "resumed-rollout.jsonl", "continue selected work");
+    insertCodexThread(codexStateDbPath, {
+      id: "resumed-thread",
+      title: "Selected Work",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.parse(session.createdAt) + 1_000,
+      firstUserMessage: "original prompt",
+      rolloutPath
+    });
+    insertCodexThread(codexStateDbPath, {
+      id: "other-active-thread",
+      title: "Other Device Session",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.parse(session.createdAt) + 2_000,
+      firstUserMessage: "other prompt",
+      rolloutPath: writeCodexRollout(fixture.cwd, "other-rollout.jsonl", "other prompt")
+    });
+
+    const updatedTitle = new Promise<{ name: string; codexThreadId: string | null }>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Resumed session title did not update from Codex rollout metadata")), 3_000);
+      let submittedPrompt = false;
+
+      void server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {}, {
+        onInit: (socket) => {
+          socket.on("message", (data) => {
+            const parsed = JSON.parse(data.toString()) as {
+              type: string;
+              data?: string;
+              session?: { name: string; codexThreadId: string | null };
+            };
+
+            if (parsed.type === "output" && parsed.data?.includes("resume ready") && !submittedPrompt) {
+              submittedPrompt = true;
+              socket.send(JSON.stringify({ type: "input", data: "continue selected work\r" }));
+            }
+
+            if (parsed.type === "status" && parsed.session?.name === "Selected Work") {
+              clearTimeout(timeout);
+              resolve(parsed.session);
+            }
+          });
+        }
+      });
+    });
+
+    await expect(updatedTitle).resolves.toMatchObject({
+      name: "Selected Work",
+      codexThreadId: "resumed-thread"
+    });
+
+    await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}`
+    });
+  });
+
+  it("does not title a resumed session from another device's newer thread without a matching user message", async () => {
+    const fixture = makeTestCodexBin(["process.stdout.write('resume ready\\n');", "process.stdin.resume();"]);
+    const codexStateDbPath = createCodexStateDb(fixture.cwd);
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      codexStateDbPath
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      payload: {
+        mode: "resume",
+        cwd: fixture.cwd,
+        deviceId: "device-1"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const session = createResponse.json<{ id: string; name: string; codexThreadId: string | null; createdAt: string }>();
+    expect(session).toMatchObject({ name: "Sessions", codexThreadId: null });
+
+    insertCodexThread(codexStateDbPath, {
+      id: "other-device-thread",
+      title: "Other Device Session",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.parse(session.createdAt) + 2_000,
+      rolloutPath: writeCodexRollout(fixture.cwd, "other-device-rollout.jsonl", "other device prompt")
+    });
+
+    const submittedPrompt = new Promise<void>((resolve) => {
+      void server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {}, {
+        onInit: (socket) => {
+          socket.on("message", (data) => {
+            const parsed = JSON.parse(data.toString()) as { type: string; data?: string };
+            if (parsed.type === "output" && parsed.data?.includes("resume ready")) {
+              socket.send(JSON.stringify({ type: "input", data: "continue selected work\r" }));
+              resolve();
+            }
+          });
+        }
+      });
+    });
+    await submittedPrompt;
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/api/open-cozy-sessions?deviceId=device-1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json<Array<{ id: string; name: string; codexThreadId: string | null }>>()).toContainEqual(
+      expect.objectContaining({
+        id: session.id,
+        name: "Sessions",
+        codexThreadId: null
+      })
+    );
 
     await server.inject({
       method: "DELETE",
