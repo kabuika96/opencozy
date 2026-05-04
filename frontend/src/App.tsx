@@ -1016,6 +1016,7 @@ export default function App() {
   const [previewUrlDraft, setPreviewUrlDraft] = useState("");
   const [previewUrlError, setPreviewUrlError] = useState<string | null>(null);
   const [previewUrlEditorOpen, setPreviewUrlEditorOpen] = useState(false);
+  const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
   const [previewTipCopied, setPreviewTipCopied] = useState(false);
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [terminalPreferences, setTerminalPreferences] = useState(() => readMobileTerminalPreferences());
@@ -1081,6 +1082,12 @@ export default function App() {
     setPreviewUrlError(null);
     setPreviewUrlEditorOpen(false);
   }, [activeSessionId]);
+
+  useEffect(() => {
+    if (overlay === "preview" && previewUrl) {
+      setPreviewFrameLoaded(false);
+    }
+  }, [overlay, previewUrl]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -1343,9 +1350,6 @@ export default function App() {
         <button className="iconButton" type="button" onClick={openSettings} aria-label="Settings">
           <Settings size={19} />
         </button>
-        <button className="iconButton" type="button" onClick={openPreview} aria-label="Preview">
-          <Monitor size={19} />
-        </button>
       </div>
 
       {(addSessionMenuOpen || confirmCloseSession) && (
@@ -1504,6 +1508,45 @@ export default function App() {
         )}
       </section>
 
+      {overlay === "preview" && (
+        <div className="previewEdgeDock" role="group" aria-label="Preview controls">
+          <button
+            className="previewEdgeDockButton"
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={openPreviewUrlEditor}
+            aria-label="Edit preview URL"
+          >
+            <PencilLine size={18} />
+          </button>
+          <button
+            className="previewEdgeDockButton"
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setPreviewUrlEditorOpen(false);
+              setPreviewUrlError(null);
+              setOverlay(null);
+            }}
+            aria-label="Close preview"
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
+
+      {activeSessionId && overlay !== "preview" && overlay !== "settings" && overlay !== "editSessionTitle" && (
+        <button
+          className="terminalControlButton previewDockButton"
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={openPreview}
+          aria-label="Preview"
+        >
+          <Monitor size={19} />
+        </button>
+      )}
+
       {overlay && (
         <button
           className={overlay === "settings" ? "scrim scrimSubtle" : "scrim"}
@@ -1548,7 +1591,7 @@ export default function App() {
       {overlay === "settings" && (
         <section className="settingsPage" data-opencozy-scrollable="true" aria-label="Settings">
           <header className="settingsPageHeader">
-            <h2>Settings</h2>
+            <h2>Keyboard Settings</h2>
             <button
               className="iconButton"
               type="button"
@@ -1560,11 +1603,14 @@ export default function App() {
           </header>
           <div className="settingsPageContent">
             <div className="settingsIntro">
-              <p>Device preferences for this browser.</p>
+              <p>Native keyboard behavior for terminal input on this device.</p>
             </div>
             <div className="settingsList" role="group" aria-label="Keyboard settings">
               <label className="settingRow">
-                <span className="settingLabel">Autocorrect</span>
+                <span className="settingText">
+                  <span className="settingLabel">Keyboard autocorrect</span>
+                  <span className="settingHint">Use spelling fixes and typing suggestions while composing.</span>
+                </span>
                 <span className="settingSwitchWrap">
                   <input
                     className="settingSwitchInput"
@@ -1578,7 +1624,10 @@ export default function App() {
                 </span>
               </label>
               <label className="settingRow">
-                <span className="settingLabel">Autocapitalization</span>
+                <span className="settingText">
+                  <span className="settingLabel">Keyboard autocapitalization</span>
+                  <span className="settingHint">Let the keyboard capitalize sentence starts automatically.</span>
+                </span>
                 <span className="settingSwitchWrap">
                   <input
                     className="settingSwitchInput"
@@ -1598,26 +1647,17 @@ export default function App() {
 
       {overlay === "preview" && (
         <section className="previewSheet" data-opencozy-scrollable="true" aria-label="App preview">
-          <div className="previewFloatingControls">
-            <button className="iconButton" type="button" onClick={openPreviewUrlEditor} aria-label="Edit preview URL">
-              <PencilLine size={18} />
-            </button>
-            <button
-              className="iconButton"
-              type="button"
-              onClick={() => {
-                setPreviewUrlEditorOpen(false);
-                setPreviewUrlError(null);
-                setOverlay(null);
-              }}
-              aria-label="Close preview"
-            >
-              <X size={18} />
-            </button>
-          </div>
           {previewUrlEditorOpen && previewUrl && renderPreviewUrlForm("previewUrlEditor", false)}
           {previewUrl ? (
-            <iframe className="previewFrame" src={previewUrl} title="App preview" />
+            <>
+              {!previewFrameLoaded && <div className="previewFrameLoading" aria-hidden="true" />}
+              <iframe
+                className={previewFrameLoaded ? "previewFrame" : "previewFrame previewFrame--loading"}
+                src={previewUrl}
+                title="App preview"
+                onLoad={() => setPreviewFrameLoaded(true)}
+              />
+            </>
           ) : (
             <div className="previewEmptyState">{renderPreviewUrlForm("previewEmptyForm", true)}</div>
           )}

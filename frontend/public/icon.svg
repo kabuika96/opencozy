@@ -1,6 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#111512"/>
-  <path d="M122 172c0-27.6 22.4-50 50-50h168c27.6 0 50 22.4 50 50v168c0 27.6-22.4 50-50 50H172c-27.6 0-50-22.4-50-50V172Z" fill="#f5f7f4"/>
-  <path d="m198 210 48 46-48 46" fill="none" stroke="#2f6f58" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M274 306h72" fill="none" stroke="#294c7a" stroke-width="34" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OpenCozy owl icon">
+  <rect width="512" height="512" rx="112" fill="#111512"/>
+  <text
+    x="256"
+    y="324"
+    text-anchor="middle"
+    font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif"
+    font-size="300"
+  >🦉</text>
 </svg>
