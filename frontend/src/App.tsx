@@ -18,33 +18,26 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  ExternalLink,
-  List,
-  Menu,
+  Monitor,
+  PencilLine,
   Plus,
-  Save,
   Settings,
-  Square,
-  TerminalSquare,
-  Trash2,
   X
 } from "lucide-react";
 import {
   closeOpenCozySession,
-  createApp,
   createOpenCozySession,
-  deleteApp,
   getCodexCapabilities,
-  listApps,
   listOpenCozySessions,
-  updateApp,
   updateOpenCozySession
 } from "./api";
-import { buildLaunchUrl, normalizeAppPath } from "./appUrls";
+import { buildOpenCozySessionSocketUrl } from "./appUrls";
 import { bindKeyboardReserve } from "./keyboardReserve";
 import {
   getMobileInputGeometry,
-  type MobileInputGeometry
+  getMobileInputSelectionRects,
+  type MobileInputGeometry,
+  type MobileInputSelectionRect
 } from "./mobileInputGeometry";
 import {
   createMobileInputBridgeSelectionPatch,
@@ -59,29 +52,34 @@ import {
 } from "./mobileTerminalPreferences";
 import { bindOuterScrollLock } from "./outerScrollLock";
 import { getSessionLoadingCopy, type SessionLoadingCopy, type SessionLoadingPhase } from "./sessionLoading";
+import {
+  normalizePreviewUrl,
+  readSessionPreviewUrl,
+  removeSessionPreviewUrl,
+  writeSessionPreviewUrl
+} from "./sessionPreviewUrls";
+import {
+  addSessionTabPreference,
+  readLastCodexThreadId,
+  readSessionTabPreferences,
+  reconcileSessionTabPreferences,
+  removeSessionTabPreference,
+  writeLastCodexThreadId,
+  writeSessionTabPreferences,
+  type SessionTabPreferences
+} from "./sessionTabPreferences";
+import { truncateSessionTabName } from "./sessionTabs";
 import { normalizeTerminalCopyText, writeTerminalClipboardText } from "./terminalClipboard";
 import { shouldShowArrowPad } from "./terminalControls";
 import { createTerminalOutputDrain } from "./terminalOutputDrain";
 import { bindTerminalTouchScroll } from "./terminalTouchScroll";
 import { getTerminalVisualCursorStyle } from "./terminalVisualCursor";
 import type {
-  AppShortcut,
-  AppShortcutInput,
   OpenCozySessionMode,
-  ShortcutProtocol,
   OpenCozySessionSummary
 } from "./types";
 
-type AppForm = {
-  id: string | null;
-  name: string;
-  protocol: ShortcutProtocol;
-  host: string;
-  port: string;
-  path: string;
-};
-
-type Overlay = "addApp" | "editSessionTitle" | "openApp" | "settings" | null;
+type Overlay = "editSessionTitle" | "preview" | "settings" | null;
 type TerminalPhase = Exclude<SessionLoadingPhase, "initializing"> | "ready";
 
 type TerminalMessage =
@@ -89,15 +87,14 @@ type TerminalMessage =
   | { type: "status"; session: OpenCozySessionSummary }
   | { type: "exit"; exitCode: number };
 
-const LAST_SESSION_KEY = "opencozy.lastOpenCozySessionId";
 const DEVICE_ID_KEY = "opencozy.deviceId";
-const LAST_CODEX_THREAD_KEY = "opencozy.lastCodexThreadId";
 const SESSION_NAME_MAX_LENGTH = 80;
 const TERMINAL_WRITE_CHUNK_SIZE = 32_000;
 const TERMINAL_INPUT_ZONE_HEIGHT = 202;
 const TERMINAL_FONT_SIZE = 14;
 const MOBILE_INPUT_FONT_SIZE = 16;
 const MOBILE_INPUT_SCALE = TERMINAL_FONT_SIZE / MOBILE_INPUT_FONT_SIZE;
+const PREVIEW_AGENT_TIP = "Please expose the app preview for this project on the LAN and send me the full URL reachable from my iPhone so I can paste it into OpenCozy Preview.";
 const ARROW_KEYS = {
   up: "\u001b[A",
   down: "\u001b[B",
@@ -124,15 +121,6 @@ function ctrlKeyData(key: string): string | null {
   return String.fromCharCode(code - 64);
 }
 
-const defaultForm = (): AppForm => ({
-  id: null,
-  name: "",
-  protocol: "http",
-  host: window.location.hostname || "127.0.0.1",
-  port: "5173",
-  path: "/"
-});
-
 function createDeviceId(): string {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -152,31 +140,10 @@ function getDeviceId(): string {
   return deviceId;
 }
 
-function rememberSession(session: OpenCozySessionSummary): void {
-  window.localStorage.setItem(LAST_SESSION_KEY, session.id);
+function rememberCodexThreadForDevice(deviceId: string, session: OpenCozySessionSummary): void {
   if (session.codexThreadId) {
-    window.localStorage.setItem(LAST_CODEX_THREAD_KEY, session.codexThreadId);
+    writeLastCodexThreadId(window.localStorage, deviceId, session.codexThreadId);
   }
-}
-
-function toAppInput(form: AppForm): AppShortcutInput {
-  const port = Number(form.port);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("Port must be 1 to 65535");
-  }
-
-  return {
-    name: form.name.trim(),
-    protocol: form.protocol,
-    host: form.host.trim(),
-    port,
-    path: normalizeAppPath(form.path)
-  };
-}
-
-function wsUrl(sessionId: string): string {
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${window.location.host}/api/open-cozy-sessions/${sessionId}/socket`;
 }
 
 function isInputZoneTap(point: MobileTerminalTapPoint, element: HTMLElement): boolean {
@@ -194,6 +161,21 @@ function applyMobileInputGeometry(input: HTMLTextAreaElement, geometry: MobileIn
   input.style.top = `${geometry.top}px`;
   input.style.transform = `scale(${MOBILE_INPUT_SCALE})`;
   input.style.width = `${geometry.width / MOBILE_INPUT_SCALE}px`;
+}
+
+function inputSelectionRectsEqual(left: MobileInputSelectionRect[], right: MobileInputSelectionRect[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((leftRect, index) => {
+    const rightRect = right[index];
+    return rightRect !== undefined
+      && leftRect.height === rightRect.height
+      && leftRect.left === rightRect.left
+      && leftRect.top === rightRect.top
+      && leftRect.width === rightRect.width;
+  });
 }
 
 function SessionLoadingState({
@@ -235,10 +217,10 @@ function TerminalPane({
   const selectionAnchorRef = useRef<MobileTerminalTapPoint | null>(null);
   const [terminalPhase, setTerminalPhase] = useState<TerminalPhase>("connecting");
   const [followBottomPaused, setFollowBottomPaused] = useState(false);
+  const [inputSelectionRects, setInputSelectionRects] = useState<MobileInputSelectionRect[]>([]);
   const [keyboardFocused, setKeyboardFocused] = useState(false);
   const [selectionCopyText, setSelectionCopyText] = useState<string | null>(null);
   const [showReturnToBottom, setShowReturnToBottom] = useState(false);
-  const [showTerminalFallbackControls, setShowTerminalFallbackControls] = useState(false);
 
   const syncVisualCursor = useCallback(() => {
     const cursor = visualCursorRef.current;
@@ -252,6 +234,7 @@ function TerminalPane({
 
     const hostRect = element.getBoundingClientRect();
     const screenRect = screen.getBoundingClientRect();
+    let hasActiveInputSelection = false;
     if (keyboardInput && screenRect.width > 0 && screenRect.height > 0) {
       const inputGeometry = getMobileInputGeometry({
         cols: terminal.cols,
@@ -271,9 +254,42 @@ function TerminalPane({
       if (inputGeometry) {
         applyMobileInputGeometry(keyboardInput, inputGeometry);
       }
+
+      const selectionStart = keyboardInput.selectionStart ?? keyboardInput.value.length;
+      const selectionEnd = keyboardInput.selectionEnd ?? selectionStart;
+      const isKeyboardInputActive = document.activeElement === keyboardInput;
+      hasActiveInputSelection = isKeyboardInputActive && selectionStart !== selectionEnd;
+      const nextSelectionRects = isKeyboardInputActive
+        ? getMobileInputSelectionRects({
+          cols: terminal.cols,
+          cursorX: terminal.buffer.active.cursorX,
+          cursorY: terminal.buffer.active.cursorY,
+          hostLeft: hostRect.left,
+          hostTop: hostRect.top,
+          inputCursor: inputBridgeRef.current.cursor,
+          inputLength: keyboardInput.value.length,
+          rows: terminal.rows,
+          screenHeight: screenRect.height,
+          screenLeft: screenRect.left,
+          screenTop: screenRect.top,
+          screenWidth: screenRect.width,
+          selectionEnd,
+          selectionStart
+        })
+        : [];
+      setInputSelectionRects((currentSelectionRects) => (
+        inputSelectionRectsEqual(currentSelectionRects, nextSelectionRects)
+          ? currentSelectionRects
+          : nextSelectionRects
+      ));
     }
 
     if (!cursor) {
+      return;
+    }
+
+    if (hasActiveInputSelection) {
+      cursor.style.display = "none";
       return;
     }
 
@@ -327,7 +343,6 @@ function TerminalPane({
   }, [syncVisualCursor]);
 
   const focusKeyboard = useCallback(() => {
-    setShowTerminalFallbackControls(false);
     keyboardInputRef.current?.focus({ preventScroll: true });
   }, []);
 
@@ -359,6 +374,7 @@ function TerminalPane({
 
   const resetKeyboardInput = useCallback((target: HTMLTextAreaElement) => {
     inputBridgeRef.current = createMobileInputBridgeState();
+    setInputSelectionRects([]);
     target.value = "";
     window.requestAnimationFrame(syncVisualCursor);
   }, [syncVisualCursor]);
@@ -373,6 +389,7 @@ function TerminalPane({
       selectionEnd
     );
     if (!patch) {
+      window.requestAnimationFrame(syncVisualCursor);
       return;
     }
 
@@ -431,7 +448,11 @@ function TerminalPane({
       return;
     }
 
-    const cleanupKeyboardReserve = bindKeyboardReserve(input);
+    const cleanupKeyboardReserve = bindKeyboardReserve(input, window, {
+      onKeyboardHidden: () => {
+        window.requestAnimationFrame(resumeFollowBottom);
+      }
+    });
     const handleSelectionChange = () => {
       if (document.activeElement !== input || composingRef.current) {
         return;
@@ -446,13 +467,13 @@ function TerminalPane({
       cleanupKeyboardReserve();
       document.removeEventListener("selectionchange", handleSelectionChange);
     };
-  }, [applyKeyboardInput, session.id]);
+  }, [applyKeyboardInput, resumeFollowBottom, session.id]);
 
   useEffect(() => {
     followBottomRef.current = true;
     setFollowBottomPaused(false);
     setShowReturnToBottom(false);
-    setShowTerminalFallbackControls(false);
+    setInputSelectionRects([]);
     setSelectionCopyText(null);
     const input = keyboardInputRef.current;
     if (input) {
@@ -469,7 +490,7 @@ function TerminalPane({
     setTerminalPhase("connecting");
 
     const terminalOptions = {
-      cursorBlink: true,
+      cursorBlink: false,
       cursorInactiveStyle: "block",
       cursorStyle: "block",
       convertEol: true,
@@ -480,7 +501,7 @@ function TerminalPane({
       theme: {
         background: "#070a08",
         foreground: "#f1f5ef",
-        cursor: "#8fd0a5",
+        cursor: "rgba(143, 208, 165, 0)",
         selectionBackground: "#2f6f58",
         black: "#070a08",
         red: "#e06d5f",
@@ -508,12 +529,11 @@ function TerminalPane({
     let lastSentRows = 0;
     let hasReceivedOutput = false;
     let hasPaintedOutput = false;
-    const socket = new WebSocket(wsUrl(session.id));
-    socketRef.current = socket;
+    let activeSocket: WebSocket | null = null;
+    let reconnectDelayMs = 250;
+    let reconnectTimer: number | null = null;
     const terminalInputDisposable = terminal.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "input", data }));
-      }
+      sendInput(data);
     });
     const refreshTerminal = () => {
       if (terminal.rows > 0) {
@@ -604,17 +624,15 @@ function TerminalPane({
         setKeyboardFocused(false);
 
         if (terminal.modes.mouseTrackingMode === "none") {
-          setShowTerminalFallbackControls(true);
           return;
         }
 
-        const forwarded = forwardTerminalTapFromOverlay({
+        forwardTerminalTapFromOverlay({
           ...point,
           overlay: touchLayer,
           root: element
         });
         terminal.textarea?.blur();
-        setShowTerminalFallbackControls(!forwarded);
       },
       onUserScroll: pauseFollowBottomAfterUserScroll
     });
@@ -691,7 +709,8 @@ function TerminalPane({
 
       fitAddon.fit();
       refreshTerminal();
-      if (socket.readyState === WebSocket.OPEN && (terminal.cols !== lastSentCols || terminal.rows !== lastSentRows)) {
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN && (terminal.cols !== lastSentCols || terminal.rows !== lastSentRows)) {
         lastSentCols = terminal.cols;
         lastSentRows = terminal.rows;
         socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
@@ -706,6 +725,104 @@ function TerminalPane({
       resizeFrame = window.requestAnimationFrame(fitAndSendResize);
     };
 
+    const clearReconnectTimer = () => {
+      if (reconnectTimer === null) {
+        return;
+      }
+
+      window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    };
+
+    const hasConnectableSocket = () => (
+      activeSocket?.readyState === WebSocket.OPEN || activeSocket?.readyState === WebSocket.CONNECTING
+    );
+
+    const connectSocket = () => {
+      if (disposed || hasConnectableSocket()) {
+        return;
+      }
+
+      clearReconnectTimer();
+      const replayHistory = !hasReceivedOutput && !hasPaintedOutput;
+      const socket = new WebSocket(buildOpenCozySessionSocketUrl(session.id, window.location, { replayHistory }));
+      activeSocket = socket;
+      socketRef.current = socket;
+
+      socket.addEventListener("open", () => {
+        if (disposed || activeSocket !== socket) {
+          return;
+        }
+
+        lastSentCols = 0;
+        lastSentRows = 0;
+        reconnectDelayMs = 250;
+        scheduleResize();
+        if (!hasReceivedOutput && !hasPaintedOutput) {
+          setTerminalPhase("waitingForOutput");
+        }
+      });
+
+      socket.addEventListener("message", (event) => {
+        if (disposed || activeSocket !== socket) {
+          return;
+        }
+
+        const message = JSON.parse(event.data as string) as TerminalMessage;
+        if (message.type === "output") {
+          if (message.data.length > 0) {
+            hasReceivedOutput = true;
+          }
+          writeTerminalOutput(message.data);
+        }
+
+        if (message.type === "status") {
+          onSessionUpdate(message.session);
+        }
+
+        if (message.type === "exit") {
+          writeTerminalOutput(`\r\n[OpenCozy session exited: ${message.exitCode}]\r\n`);
+        }
+      });
+
+      socket.addEventListener("close", (event) => {
+        if (disposed || activeSocket !== socket) {
+          return;
+        }
+
+        activeSocket = null;
+        if (socketRef.current === socket) {
+          socketRef.current = null;
+        }
+
+        if (event.code === 1000) {
+          markTerminalReady();
+          return;
+        }
+
+        if (event.code === 1008) {
+          writeTerminalOutput("\r\n[OpenCozy session is no longer available]\r\n");
+          markTerminalReady();
+          return;
+        }
+
+        if (document.visibilityState === "visible") {
+          const delay = reconnectDelayMs;
+          reconnectDelayMs = Math.min(reconnectDelayMs * 2, 5_000);
+          reconnectTimer = window.setTimeout(() => {
+            reconnectTimer = null;
+            connectSocket();
+          }, delay);
+        }
+      });
+    };
+
+    const ensureSocketConnected = () => {
+      if (!hasConnectableSocket()) {
+        connectSocket();
+      }
+    };
+
     const resizeObserver = new ResizeObserver(scheduleResize);
     resizeObserver.observe(element);
 
@@ -717,6 +834,7 @@ function TerminalPane({
       scheduleResize();
       scrollToBottomIfFollowing();
       window.requestAnimationFrame(refreshTerminal);
+      ensureSocketConnected();
     };
 
     const handleVisibilityChange = () => {
@@ -729,49 +847,7 @@ function TerminalPane({
     window.addEventListener("pageshow", restoreTerminalFrame);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    socket.addEventListener("open", () => {
-      if (disposed) {
-        return;
-      }
-      scheduleResize();
-      if (!hasReceivedOutput && !hasPaintedOutput) {
-        setTerminalPhase("waitingForOutput");
-      }
-    });
-    socket.addEventListener("message", (event) => {
-      if (disposed) {
-        return;
-      }
-
-      const message = JSON.parse(event.data as string) as TerminalMessage;
-      if (message.type === "output") {
-        if (message.data.length > 0) {
-          hasReceivedOutput = true;
-        }
-        writeTerminalOutput(message.data);
-      }
-
-      if (message.type === "status") {
-        onSessionUpdate(message.session);
-      }
-
-      if (message.type === "exit") {
-        writeTerminalOutput(`\r\n[OpenCozy session exited: ${message.exitCode}]\r\n`);
-      }
-    });
-    socket.addEventListener("close", (event) => {
-      if (disposed) {
-        return;
-      }
-
-      if (event.code !== 1000) {
-        writeTerminalOutput(`\r\n[OpenCozy socket closed: ${event.code || "no code"}]\r\n`);
-        return;
-      }
-
-      markTerminalReady();
-    });
-
+    connectSocket();
     scheduleResize();
     scheduleCursorSync();
 
@@ -781,6 +857,7 @@ function TerminalPane({
       if (resizeFrame !== null) {
         window.cancelAnimationFrame(resizeFrame);
       }
+      clearReconnectTimer();
       terminalOutputDrain.dispose();
       cleanupTouchScroll();
       touchLayer.removeEventListener("wheel", handleWheelScroll);
@@ -797,26 +874,25 @@ function TerminalPane({
       window.removeEventListener("pageshow", restoreTerminalFrame);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
 
-      if (socket.readyState === WebSocket.CONNECTING) {
+      const socket = activeSocket;
+      if (socket?.readyState === WebSocket.CONNECTING) {
         socket.addEventListener("open", () => socket.close(1000, "Terminal pane disposed"), { once: true });
-      } else if (socket.readyState === WebSocket.OPEN) {
+      } else if (socket?.readyState === WebSocket.OPEN) {
         socket.close(1000, "Terminal pane disposed");
       }
 
       terminal.dispose();
-      if (socketRef.current === socket) {
+      if (socketRef.current === socket || socketRef.current === activeSocket) {
         socketRef.current = null;
       }
+      activeSocket = null;
       if (terminalRef.current === terminal) {
         terminalRef.current = null;
       }
     };
-  }, [focusKeyboard, onSessionUpdate, pauseFollowBottom, session.id, syncVisualCursor]);
+  }, [focusKeyboard, onSessionUpdate, pauseFollowBottom, sendInput, session.id, syncVisualCursor]);
 
-  const showArrowPad = shouldShowArrowPad({
-    keyboardFocused,
-    terminalFallbackControlsVisible: showTerminalFallbackControls
-  });
+  const showArrowPad = shouldShowArrowPad();
 
   return (
     <>
@@ -840,11 +916,32 @@ function TerminalPane({
           }}
           onInput={handleKeyboardInput}
           onKeyDown={handleKeyboardKeyDown}
-          onBlur={() => setKeyboardFocused(false)}
-          onFocus={() => setKeyboardFocused(true)}
+          onBlur={() => {
+            setKeyboardFocused(false);
+            setInputSelectionRects([]);
+          }}
+          onFocus={() => {
+            setKeyboardFocused(true);
+            window.requestAnimationFrame(syncVisualCursor);
+          }}
           onSelect={handleKeyboardSelect}
         />
         <div className="terminalSurface" ref={elementRef} />
+        {inputSelectionRects.length > 0 && (
+          <div className="terminalInputSelectionLayer" aria-hidden="true">
+            {inputSelectionRects.map((rect, index) => (
+              <span
+                key={index}
+                className="terminalInputSelectionMark"
+                style={{
+                  height: `${rect.height}px`,
+                  transform: `translate(${rect.left}px, ${rect.top}px)`,
+                  width: `${rect.width}px`
+                }}
+              />
+            ))}
+          </div>
+        )}
         <div className="terminalVisualCursor" ref={visualCursorRef} aria-hidden="true" />
         {terminalPhase !== "ready" && (
           <SessionLoadingState
@@ -907,27 +1004,82 @@ function TerminalPane({
 export default function App() {
   const shellRef = useRef<HTMLElement | null>(null);
   const [deviceId] = useState(getDeviceId);
+  const [initialSessionTabPreferences] = useState(() => readSessionTabPreferences(window.localStorage, deviceId));
   const [sessions, setSessions] = useState<OpenCozySessionSummary[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [apps, setApps] = useState<AppShortcut[]>([]);
-  const [form, setForm] = useState<AppForm>(() => defaultForm());
+  const [sessionTabIds, setSessionTabIds] = useState<string[]>(() => initialSessionTabPreferences.tabIds);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => initialSessionTabPreferences.activeSessionId);
   const [error, setError] = useState<string | null>(null);
   const [loadingInitialData, setLoadingInitialData] = useState(true);
   const [busy, setBusy] = useState(false);
   const [pendingSessionMode, setPendingSessionMode] = useState<OpenCozySessionMode | null>(null);
+  const [previewUrl, setPreviewUrl] = useState(() => readSessionPreviewUrl(window.localStorage, null));
+  const [previewUrlDraft, setPreviewUrlDraft] = useState("");
+  const [previewUrlError, setPreviewUrlError] = useState<string | null>(null);
+  const [previewUrlEditorOpen, setPreviewUrlEditorOpen] = useState(false);
+  const [previewTipCopied, setPreviewTipCopied] = useState(false);
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [terminalPreferences, setTerminalPreferences] = useState(() => readMobileTerminalPreferences());
-  const [menuOpen, setMenuOpen] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>(null);
-  const activeSessionIdRef = useRef<string | null>(null);
+  const [addSessionMenuOpen, setAddSessionMenuOpen] = useState(false);
+  const [confirmCloseSessionId, setConfirmCloseSessionId] = useState<string | null>(null);
+  const activeSessionIdRef = useRef<string | null>(activeSessionId);
 
+  const sessionById = useMemo(
+    () => new Map(sessions.map((session) => [session.id, session])),
+    [sessions]
+  );
+  const sessionTabs = useMemo(
+    () => sessionTabIds.map((id) => sessionById.get(id)).filter((session): session is OpenCozySessionSummary => Boolean(session)),
+    [sessionById, sessionTabIds]
+  );
+  const showStartPlaceholder = !loadingInitialData && !pendingSessionMode && sessionTabs.length === 0;
   const activeSession = useMemo(
-    () => sessions.find((session) => session.id === activeSessionId) || null,
-    [activeSessionId, sessions]
+    () => (activeSessionId ? sessionById.get(activeSessionId) ?? null : null),
+    [activeSessionId, sessionById]
+  );
+  const confirmCloseSession = useMemo(
+    () => (confirmCloseSessionId ? sessionById.get(confirmCloseSessionId) ?? null : null),
+    [confirmCloseSessionId, sessionById]
   );
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  const selectActiveSessionId = useCallback((sessionId: string | null) => {
+    activeSessionIdRef.current = sessionId;
+    setActiveSessionId(sessionId);
+  }, []);
+
+  const persistSessionTabPreferences = useCallback((preferences: SessionTabPreferences) => {
+    const persisted = writeSessionTabPreferences(window.localStorage, deviceId, preferences);
+    setSessionTabIds(persisted.tabIds);
+    selectActiveSessionId(persisted.activeSessionId);
+    return persisted;
+  }, [deviceId, selectActiveSessionId]);
+
+  useEffect(() => {
+    if (loadingInitialData) {
+      return;
+    }
+
+    if (activeSessionId && !sessionById.has(activeSessionId)) {
+      persistSessionTabPreferences(reconcileSessionTabPreferences({ activeSessionId, tabIds: sessionTabIds }, sessions));
+    }
+  }, [activeSessionId, loadingInitialData, persistSessionTabPreferences, sessionById, sessions, sessionTabIds]);
+
+  useEffect(() => {
+    if (confirmCloseSessionId && !sessionById.has(confirmCloseSessionId)) {
+      setConfirmCloseSessionId(null);
+    }
+  }, [confirmCloseSessionId, sessionById]);
+
+  useEffect(() => {
+    const nextPreviewUrl = readSessionPreviewUrl(window.localStorage, activeSessionId);
+    setPreviewUrl(nextPreviewUrl);
+    setPreviewUrlDraft(nextPreviewUrl);
+    setPreviewUrlError(null);
+    setPreviewUrlEditorOpen(false);
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -944,19 +1096,14 @@ export default function App() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [, sessionResult, appResult] = await Promise.all([
+    const restoredPreferences = readSessionTabPreferences(window.localStorage, deviceId);
+    const [, sessionResult] = await Promise.all([
       getCodexCapabilities(),
-      listOpenCozySessions(),
-      listApps()
+      listOpenCozySessions({ deviceId, tabIds: restoredPreferences.tabIds })
     ]);
     setSessions(sessionResult);
-    setApps(appResult);
-
-    const lastSessionId = window.localStorage.getItem(LAST_SESSION_KEY);
-    if (!activeSessionIdRef.current && lastSessionId && sessionResult.some((session) => session.id === lastSessionId)) {
-      setActiveSessionId(lastSessionId);
-    }
-  }, []);
+    persistSessionTabPreferences(reconcileSessionTabPreferences(restoredPreferences, sessionResult));
+  }, [deviceId, persistSessionTabPreferences]);
 
   useEffect(() => {
     let disposed = false;
@@ -983,18 +1130,19 @@ export default function App() {
     setBusy(true);
     setPendingSessionMode(mode);
     setError(null);
-    setMenuOpen(false);
+    setAddSessionMenuOpen(false);
+    setConfirmCloseSessionId(null);
     setOverlay(null);
 
     try {
-      const lastCodexThreadId = mode === "resumeLast" ? window.localStorage.getItem(LAST_CODEX_THREAD_KEY) : null;
+      const lastCodexThreadId = mode === "resumeLast" ? readLastCodexThreadId(window.localStorage, deviceId) : null;
       const session = await createOpenCozySession(mode, {
         deviceId,
         ...(lastCodexThreadId ? { codexThreadId: lastCodexThreadId } : {})
       });
-      setSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
-      setActiveSessionId(session.id);
-      rememberSession(session);
+      setSessions((current) => [...current.filter((item) => item.id !== session.id), session]);
+      persistSessionTabPreferences(addSessionTabPreference({ activeSessionId: activeSessionIdRef.current, tabIds: sessionTabIds }, session.id));
+      rememberCodexThreadForDevice(deviceId, session);
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : "Failed to start Codex");
     } finally {
@@ -1009,7 +1157,8 @@ export default function App() {
     }
 
     setError(null);
-    setMenuOpen(false);
+    setAddSessionMenuOpen(false);
+    setConfirmCloseSessionId(null);
     setSessionTitleDraft(activeSession.name);
     setOverlay("editSessionTitle");
   };
@@ -1038,88 +1187,151 @@ export default function App() {
     }
   };
 
-  const stopActiveSession = async () => {
-    if (!activeSession) {
-      return;
-    }
-
-    setError(null);
-    try {
-      await closeOpenCozySession(activeSession.id);
-      setSessions((current) => current.filter((session) => session.id !== activeSession.id));
-      setActiveSessionId(null);
-      window.localStorage.removeItem(LAST_SESSION_KEY);
-    } catch (closeError) {
-      setError(closeError instanceof Error ? closeError.message : "Failed to stop Codex");
-    }
-  };
-
   const handleSessionUpdate = useCallback((updated: OpenCozySessionSummary) => {
     setSessions((current) => current.map((session) => (session.id === updated.id ? updated : session)));
     if (updated.id === activeSessionIdRef.current) {
-      rememberSession(updated);
+      rememberCodexThreadForDevice(deviceId, updated);
     }
-  }, []);
+  }, [deviceId]);
 
-  const editApp = (app: AppShortcut) => {
-    setForm({
-      id: app.id,
-      name: app.name,
-      protocol: app.protocol,
-      host: app.host,
-      port: String(app.port),
-      path: app.path
-    });
-    setOverlay("addApp");
+  const activateSessionTab = (session: OpenCozySessionSummary) => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setAddSessionMenuOpen(false);
+    setConfirmCloseSessionId(null);
+    persistSessionTabPreferences(addSessionTabPreference({ activeSessionId, tabIds: sessionTabIds }, session.id));
+    rememberCodexThreadForDevice(deviceId, session);
   };
 
-  const saveApp = async () => {
+  const closeSessionTab = async (sessionId: string) => {
+    const nextPreferences = removeSessionTabPreference({ activeSessionId: activeSessionIdRef.current, tabIds: sessionTabIds }, sessionId);
+    setBusy(true);
     setError(null);
+    setAddSessionMenuOpen(false);
+    setConfirmCloseSessionId(null);
+
     try {
-      const input = toAppInput(form);
-      if (!input.name) {
-        throw new Error("Name is required");
+      await closeOpenCozySession(sessionId);
+      removeSessionPreviewUrl(window.localStorage, sessionId);
+      setSessions((current) => current.filter((session) => session.id !== sessionId));
+      persistSessionTabPreferences(nextPreferences);
+      const nextSession = nextPreferences.activeSessionId ? sessionById.get(nextPreferences.activeSessionId) : null;
+      if (nextSession) {
+        rememberCodexThreadForDevice(deviceId, nextSession);
       }
-      if (!input.host) {
-        throw new Error("Host is required");
-      }
-
-      const saved = form.id ? await updateApp(form.id, input) : await createApp(input);
-      setApps((current) => {
-        const next = current.filter((app) => app.id !== saved.id);
-        return [...next, saved].sort((a, b) => a.name.localeCompare(b.name));
-      });
-      setForm(defaultForm());
-      setOverlay("openApp");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to save LAN app");
+    } catch (closeError) {
+      setError(closeError instanceof Error ? closeError.message : "Failed to close session");
+    } finally {
+      setBusy(false);
     }
   };
 
-  const removeApp = async (id: string) => {
-    setError(null);
-    await deleteApp(id);
-    setApps((current) => current.filter((app) => app.id !== id));
-    if (form.id === id) {
-      setForm(defaultForm());
+  const openPreview = () => {
+    if (!activeSessionId) {
+      setError("Open a session tab before using preview.");
+      return;
     }
-  };
 
-  const openAddApp = () => {
-    setMenuOpen(false);
-    setForm(defaultForm());
-    setOverlay("addApp");
-  };
-
-  const openApps = () => {
-    setMenuOpen(false);
-    setOverlay("openApp");
+    setAddSessionMenuOpen(false);
+    setConfirmCloseSessionId(null);
+    const sessionPreviewUrl = readSessionPreviewUrl(window.localStorage, activeSessionId);
+    setPreviewUrl(sessionPreviewUrl);
+    setPreviewUrlDraft(sessionPreviewUrl);
+    setPreviewUrlError(null);
+    setPreviewUrlEditorOpen(false);
+    setPreviewTipCopied(false);
+    setOverlay("preview");
   };
 
   const openSettings = () => {
-    setMenuOpen(false);
+    setAddSessionMenuOpen(false);
+    setConfirmCloseSessionId(null);
     setOverlay("settings");
   };
+
+  const openPreviewUrlEditor = () => {
+    setPreviewUrlError(null);
+    setPreviewUrlDraft(previewUrl);
+    setPreviewUrlEditorOpen(true);
+  };
+
+  const savePreviewUrl = () => {
+    if (!activeSessionId) {
+      setPreviewUrlError("Open a session tab before saving preview URL.");
+      return;
+    }
+
+    setPreviewUrlError(null);
+    try {
+      const nextUrl = normalizePreviewUrl(previewUrlDraft);
+      writeSessionPreviewUrl(window.localStorage, activeSessionId, nextUrl);
+      setPreviewUrl(nextUrl);
+      setPreviewUrlDraft(nextUrl);
+      setPreviewUrlEditorOpen(false);
+    } catch (previewUrlError) {
+      setPreviewUrlError(previewUrlError instanceof Error ? previewUrlError.message : "Failed to save preview URL");
+    }
+  };
+
+  const copyPreviewAgentTip = () => {
+    setPreviewTipCopied(false);
+    void writeTerminalClipboardText(PREVIEW_AGENT_TIP).then((copied) => {
+      if (!copied) {
+        return;
+      }
+
+      setPreviewTipCopied(true);
+      window.setTimeout(() => setPreviewTipCopied(false), 1500);
+    });
+  };
+
+  const renderPreviewUrlForm = (className: string, includeInstructions: boolean) => (
+    <form
+      className={className}
+      onSubmit={(event) => {
+        event.preventDefault();
+        savePreviewUrl();
+      }}
+    >
+      {includeInstructions && (
+        <div className="previewEmptyCopy">
+          <h2>Preview URL</h2>
+          <p>Enter the local app URL for this session tab. Saved URLs stay attached to the current tab.</p>
+        </div>
+      )}
+      <label className="field previewUrlField">
+        <span>Preview URL</span>
+        <input
+          autoCapitalize="off"
+          autoCorrect="off"
+          inputMode="url"
+          placeholder="localhost:5173"
+          value={previewUrlDraft}
+          onChange={(event) => {
+            setPreviewUrlDraft(event.currentTarget.value);
+            setPreviewUrlError(null);
+          }}
+        />
+      </label>
+      {previewUrlError && <div className="previewUrlError">{previewUrlError}</div>}
+      <button className="primaryButton previewSaveButton" type="submit">
+        <span>Save URL</span>
+      </button>
+      {includeInstructions && (
+        <div className="previewAgentTip">
+          <div className="previewAgentTipText">
+            <span>Need help finding the URL?</span>
+            <p>Paste this message to your agent if you do not know how to connect.</p>
+            <code>{PREVIEW_AGENT_TIP}</code>
+          </div>
+          <button className="previewAgentTipCopy" type="button" onClick={copyPreviewAgentTip}>
+            <span>{previewTipCopied ? "Copied" : "Copy Message"}</span>
+          </button>
+        </div>
+      )}
+    </form>
+  );
 
   const updateTerminalPreference = (key: MobileTerminalPreferenceKey, value: boolean) => {
     setTerminalPreferences(writeMobileTerminalPreference(window.localStorage, key, value));
@@ -1127,46 +1339,116 @@ export default function App() {
 
   return (
     <main className="terminalShell" ref={shellRef}>
-      <div className="topFloatingControls" aria-label="OpenCozy controls">
-        <div className="menuAnchor">
-          <button className="iconButton" type="button" onClick={() => setMenuOpen((open) => !open)} aria-label="Menu">
-            <Menu size={20} />
-          </button>
-          {menuOpen && (
-            <nav className="actionMenu" aria-label="OpenCozy menu">
-              <button type="button" onClick={() => void startSession("new")} disabled={busy}>
-                <Plus size={18} />
-                <span>Start New</span>
-              </button>
-              <button type="button" onClick={() => void startSession("resume")} disabled={busy}>
-                <List size={18} />
-                <span>Sessions</span>
-              </button>
-              <button type="button" onClick={openAddApp}>
-                <Save size={18} />
-                <span>Add App</span>
-              </button>
-              <button type="button" onClick={openApps}>
-                <ExternalLink size={18} />
-                <span>Open App</span>
-              </button>
-              <button type="button" onClick={openSettings}>
-                <Settings size={18} />
-                <span>Settings</span>
-              </button>
-            </nav>
-          )}
-        </div>
-
-        <button className="iconButton stopButton" type="button" onClick={() => void stopActiveSession()} disabled={!activeSession} aria-label="Stop session">
-          <Square size={16} />
+      <div className="leftControlRail" aria-label="OpenCozy controls">
+        <button className="iconButton" type="button" onClick={openSettings} aria-label="Settings">
+          <Settings size={19} />
+        </button>
+        <button className="iconButton" type="button" onClick={openPreview} aria-label="Preview">
+          <Monitor size={19} />
         </button>
       </div>
 
-      {activeSession && (
-        <button className="sessionTitleButton" type="button" onClick={openSessionTitleEditor} aria-label="Edit session title">
-          <span>{activeSession.name}</span>
+      {(addSessionMenuOpen || confirmCloseSession) && (
+        <button
+          className="sessionPromptScrim"
+          type="button"
+          onClick={() => {
+            setAddSessionMenuOpen(false);
+            setConfirmCloseSessionId(null);
+          }}
+          aria-label="Close session prompt"
+        />
+      )}
+
+      <div className="sessionTabBar" aria-label="OpenCozy session tabs">
+        <div className="sessionTabScroller" data-opencozy-scrollable="true">
+          {showStartPlaceholder && (
+            <div className="sessionTab active sessionTabPlaceholder" aria-current="page">
+              <span className="sessionTabPlaceholderName">OpenCozy</span>
+              <button className="sessionTabClose sessionTabClosePlaceholder" type="button" disabled aria-label="No session to close">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          {sessionTabs.map((session) => {
+            const isActive = session.id === activeSessionId;
+            return (
+              <div className={isActive ? "sessionTab active" : "sessionTab"} key={session.id}>
+                <button
+                  className="sessionTabName"
+                  type="button"
+                  onClick={() => {
+                    if (isActive) {
+                      openSessionTitleEditor();
+                      return;
+                    }
+                    activateSessionTab(session);
+                  }}
+                  aria-current={isActive ? "page" : undefined}
+                  aria-label={isActive ? `Edit ${session.name}` : `Switch to ${session.name}`}
+                >
+                  <span>{truncateSessionTabName(session.name)}</span>
+                </button>
+                <button
+                  className="sessionTabClose"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setAddSessionMenuOpen(false);
+                    setConfirmCloseSessionId(session.id);
+                  }}
+                  disabled={busy}
+                  aria-label={`Close ${session.name}`}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <button
+          className={addSessionMenuOpen ? "sessionTabAdd active" : "sessionTabAdd"}
+          type="button"
+          onClick={() => {
+            setConfirmCloseSessionId(null);
+            setAddSessionMenuOpen((open) => !open);
+          }}
+          disabled={busy}
+          aria-expanded={addSessionMenuOpen}
+          aria-haspopup="menu"
+          aria-label="Add session"
+        >
+          <Plus size={20} />
         </button>
+      </div>
+
+      {addSessionMenuOpen && (
+        <div className="sessionAddMenu" role="menu" aria-label="Add session">
+          <button type="button" role="menuitem" onClick={() => void startSession("new")} disabled={busy}>
+            <span>New Session</span>
+            <ChevronRight size={16} />
+          </button>
+          <button type="button" role="menuitem" onClick={() => void startSession("resume")} disabled={busy}>
+            <span>Resume Session</span>
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      )}
+      {confirmCloseSession && (
+        <div className="sessionCloseConfirm" role="dialog" aria-label={`Close ${confirmCloseSession.name}`}>
+          <div className="sessionCloseText">
+            <span>Close session?</span>
+            <p>{truncateSessionTabName(confirmCloseSession.name)}</p>
+          </div>
+          <div className="sessionCloseActions">
+            <button type="button" onClick={() => setConfirmCloseSessionId(null)}>
+              Cancel
+            </button>
+            <button className="danger" type="button" onClick={() => void closeSessionTab(confirmCloseSession.id)} disabled={busy}>
+              Close
+            </button>
+          </div>
+        </div>
       )}
 
       {error && (
@@ -1179,8 +1461,16 @@ export default function App() {
       )}
 
       <section className="terminalViewport" aria-label="Codex terminal">
-        {activeSession ? (
-          <TerminalPane preferences={terminalPreferences} session={activeSession} onSessionUpdate={handleSessionUpdate} />
+        {sessionTabs.length > 0 ? (
+          sessionTabs.map((session) => (
+            <div
+              className={session.id === activeSessionId ? "terminalPaneSlot active" : "terminalPaneSlot"}
+              key={session.id}
+              aria-hidden={session.id !== activeSessionId}
+            >
+              <TerminalPane preferences={terminalPreferences} session={session} onSessionUpdate={handleSessionUpdate} />
+            </div>
+          ))
         ) : pendingSessionMode ? (
           <SessionLoadingState copy={getSessionLoadingCopy(pendingSessionMode, "initializing")} />
         ) : loadingInitialData ? (
@@ -1191,17 +1481,37 @@ export default function App() {
             }}
           />
         ) : (
-          <div className="terminalPlaceholder">
-            <TerminalSquare size={24} />
-            <button type="button" onClick={() => void startSession("new")} disabled={busy}>
-              <Plus size={18} />
-              <span>Start New</span>
-            </button>
+          <div className="startSessionState">
+            <div className="startSessionIntro">
+              <h1>Sessions</h1>
+              <p>Sessions are globally shared and can be accessed from any device connected to the harness environment.</p>
+            </div>
+            <div className="startSessionOptions">
+              <button className="startSessionButton" type="button" onClick={() => void startSession("new")} disabled={busy}>
+                <span className="startSessionButtonLabel">
+                  <span className="startSessionButtonText">New Session</span>
+                </span>
+                <ChevronRight className="startSessionChevron" size={18} />
+              </button>
+              <button className="startSessionButton" type="button" onClick={() => void startSession("resume")} disabled={busy}>
+                <span className="startSessionButtonLabel">
+                  <span className="startSessionButtonText">Resume Session</span>
+                </span>
+                <ChevronRight className="startSessionChevron" size={18} />
+              </button>
+            </div>
           </div>
         )}
       </section>
 
-      {overlay && <button className="scrim" type="button" onClick={() => setOverlay(null)} aria-label="Close panel" />}
+      {overlay && (
+        <button
+          className={overlay === "settings" ? "scrim scrimSubtle" : "scrim"}
+          type="button"
+          onClick={() => setOverlay(null)}
+          aria-label="Close panel"
+        />
+      )}
 
       {overlay === "editSessionTitle" && (
         <section className="sheet sessionNameSheet" data-opencozy-scrollable="true" aria-label="Edit OpenCozy session title">
@@ -1229,118 +1539,88 @@ export default function App() {
               />
             </label>
             <button className="primaryButton" type="submit" disabled={busy || !sessionTitleDraft.trim()}>
-              <Save size={18} />
-              <span>Save</span>
+              <span>Save Title</span>
             </button>
           </form>
         </section>
       )}
 
       {overlay === "settings" && (
-        <section className="sheet settingsSheet" data-opencozy-scrollable="true" aria-label="Settings">
-          <header className="sheetHeader">
+        <section className="settingsPage" data-opencozy-scrollable="true" aria-label="Settings">
+          <header className="settingsPageHeader">
             <h2>Settings</h2>
-            <button className="iconButton small" type="button" onClick={() => setOverlay(null)} aria-label="Close">
-              <X size={17} />
+            <button
+              className="iconButton"
+              type="button"
+              onClick={() => setOverlay(null)}
+              aria-label="Close settings"
+            >
+              <X size={18} />
             </button>
           </header>
-          <div className="settingsList">
-            <label className="settingRow">
-              <span>Autocorrect</span>
-              <input
-                type="checkbox"
-                checked={terminalPreferences.autocorrect}
-                onChange={(event) => updateTerminalPreference("autocorrect", event.currentTarget.checked)}
-              />
-            </label>
-            <label className="settingRow">
-              <span>Autocapitalization</span>
-              <input
-                type="checkbox"
-                checked={terminalPreferences.autocapitalization}
-                onChange={(event) => updateTerminalPreference("autocapitalization", event.currentTarget.checked)}
-              />
-            </label>
+          <div className="settingsPageContent">
+            <div className="settingsIntro">
+              <p>Device preferences for this browser.</p>
+            </div>
+            <div className="settingsList" role="group" aria-label="Keyboard settings">
+              <label className="settingRow">
+                <span className="settingLabel">Autocorrect</span>
+                <span className="settingSwitchWrap">
+                  <input
+                    className="settingSwitchInput"
+                    type="checkbox"
+                    checked={terminalPreferences.autocorrect}
+                    onChange={(event) => updateTerminalPreference("autocorrect", event.currentTarget.checked)}
+                  />
+                  <span className={terminalPreferences.autocorrect ? "settingSwitch active" : "settingSwitch"} aria-hidden="true">
+                    <span className="settingSwitchThumb" />
+                  </span>
+                </span>
+              </label>
+              <label className="settingRow">
+                <span className="settingLabel">Autocapitalization</span>
+                <span className="settingSwitchWrap">
+                  <input
+                    className="settingSwitchInput"
+                    type="checkbox"
+                    checked={terminalPreferences.autocapitalization}
+                    onChange={(event) => updateTerminalPreference("autocapitalization", event.currentTarget.checked)}
+                  />
+                  <span className={terminalPreferences.autocapitalization ? "settingSwitch active" : "settingSwitch"} aria-hidden="true">
+                    <span className="settingSwitchThumb" />
+                  </span>
+                </span>
+              </label>
+            </div>
           </div>
         </section>
       )}
 
-      {overlay === "addApp" && (
-        <section className="sheet" data-opencozy-scrollable="true" aria-label="Add LAN app">
-          <header className="sheetHeader">
-            <h2>{form.id ? "Edit App" : "Add App"}</h2>
-            <button className="iconButton small" type="button" onClick={() => setOverlay(null)} aria-label="Close">
-              <X size={17} />
+      {overlay === "preview" && (
+        <section className="previewSheet" data-opencozy-scrollable="true" aria-label="App preview">
+          <div className="previewFloatingControls">
+            <button className="iconButton" type="button" onClick={openPreviewUrlEditor} aria-label="Edit preview URL">
+              <PencilLine size={18} />
             </button>
-          </header>
-          <form
-            className="appForm"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveApp();
-            }}
-          >
-            <label className="field">
-              <span>Name</span>
-              <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-            </label>
-            <label className="field">
-              <span>Protocol</span>
-              <select value={form.protocol} onChange={(event) => setForm({ ...form, protocol: event.target.value as ShortcutProtocol })}>
-                <option value="http">http</option>
-                <option value="https">https</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Host</span>
-              <input value={form.host} onChange={(event) => setForm({ ...form, host: event.target.value })} autoCapitalize="off" autoCorrect="off" />
-            </label>
-            <label className="field">
-              <span>Port</span>
-              <input inputMode="numeric" value={form.port} onChange={(event) => setForm({ ...form, port: event.target.value })} />
-            </label>
-            <label className="field">
-              <span>Path</span>
-              <input value={form.path} onChange={(event) => setForm({ ...form, path: event.target.value })} autoCapitalize="off" autoCorrect="off" />
-            </label>
-            <button className="primaryButton" type="submit">
-              <Save size={18} />
-              <span>{form.id ? "Save" : "Add"}</span>
+            <button
+              className="iconButton"
+              type="button"
+              onClick={() => {
+                setPreviewUrlEditorOpen(false);
+                setPreviewUrlError(null);
+                setOverlay(null);
+              }}
+              aria-label="Close preview"
+            >
+              <X size={18} />
             </button>
-          </form>
-        </section>
-      )}
-
-      {overlay === "openApp" && (
-        <section className="sheet" data-opencozy-scrollable="true" aria-label="Open LAN app">
-          <header className="sheetHeader">
-            <h2>Open App</h2>
-            <button className="iconButton small" type="button" onClick={() => setOverlay(null)} aria-label="Close">
-              <X size={17} />
-            </button>
-          </header>
-          <div className="appGrid">
-            {apps.map((app) => (
-              <article className="appTile" key={app.id}>
-                <div>
-                  <h3>{app.name}</h3>
-                  <p>{buildLaunchUrl(app)}</p>
-                </div>
-                <div className="tileActions">
-                  <a className="iconButton launch" href={app.url} target="_blank" rel="noreferrer" aria-label={`Open ${app.name}`}>
-                    <ExternalLink size={17} />
-                  </a>
-                  <button className="iconButton" type="button" onClick={() => editApp(app)} aria-label={`Edit ${app.name}`}>
-                    <Save size={17} />
-                  </button>
-                  <button className="iconButton danger" type="button" onClick={() => removeApp(app.id)} aria-label={`Delete ${app.name}`}>
-                    <Trash2 size={17} />
-                  </button>
-                </div>
-              </article>
-            ))}
-            {apps.length === 0 && <div className="emptyState">No LAN app shortcuts</div>}
           </div>
+          {previewUrlEditorOpen && previewUrl && renderPreviewUrlForm("previewUrlEditor", false)}
+          {previewUrl ? (
+            <iframe className="previewFrame" src={previewUrl} title="App preview" />
+          ) : (
+            <div className="previewEmptyState">{renderPreviewUrlForm("previewEmptyForm", true)}</div>
+          )}
         </section>
       )}
     </main>

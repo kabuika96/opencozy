@@ -76,4 +76,77 @@ describe("keyboard reserve", () => {
 
     cleanup();
   });
+
+  it("keeps the reserve when inactive mounted panes receive viewport events", () => {
+    const activeInput = new FakeTarget();
+    const inactiveInput = new FakeTarget();
+    const { style, visualViewport, win } = makeWindow({ visualHeight: 844 });
+    const cleanupActive = bindKeyboardReserve(activeInput, win as unknown as Window);
+    const cleanupInactive = bindKeyboardReserve(inactiveInput, win as unknown as Window);
+
+    visualViewport.height = 500;
+    activeInput.dispatchEvent(new Event("focus"));
+    win.dispatchEvent(new Event("resize"));
+
+    expect(style.values.get("--oc-keyboard-reserve")).toBe("371px");
+
+    cleanupActive();
+    cleanupInactive();
+  });
+
+  it("keeps the reserve when an inactive mounted pane is disposed", () => {
+    const activeInput = new FakeTarget();
+    const inactiveInput = new FakeTarget();
+    const { style, visualViewport, win } = makeWindow({ visualHeight: 844 });
+    const cleanupActive = bindKeyboardReserve(activeInput, win as unknown as Window);
+    const cleanupInactive = bindKeyboardReserve(inactiveInput, win as unknown as Window);
+
+    visualViewport.height = 500;
+    activeInput.dispatchEvent(new Event("focus"));
+    cleanupInactive();
+
+    expect(style.values.get("--oc-keyboard-reserve")).toBe("371px");
+
+    cleanupActive();
+  });
+
+  it("notifies once when the keyboard hides after blur", () => {
+    const input = new FakeTarget();
+    const { style, win } = makeWindow();
+    let hiddenCount = 0;
+    const cleanup = bindKeyboardReserve(input, win as unknown as Window, {
+      onKeyboardHidden: () => {
+        hiddenCount += 1;
+      }
+    });
+
+    input.dispatchEvent(new Event("focus"));
+    input.dispatchEvent(new Event("blur"));
+
+    expect(style.values.get("--oc-keyboard-reserve")).toBe("0px");
+    expect(hiddenCount).toBe(1);
+
+    cleanup();
+  });
+
+  it("notifies when a measured iOS viewport returns to full height while input remains focused", () => {
+    const input = new FakeTarget();
+    const { style, visualViewport, win } = makeWindow({ visualHeight: 844 });
+    let hiddenCount = 0;
+    const cleanup = bindKeyboardReserve(input, win as unknown as Window, {
+      onKeyboardHidden: () => {
+        hiddenCount += 1;
+      }
+    });
+
+    visualViewport.height = 500;
+    input.dispatchEvent(new Event("focus"));
+    visualViewport.height = 844;
+    visualViewport.dispatchEvent(new Event("resize"));
+
+    expect(style.values.get("--oc-keyboard-reserve")).toBe("0px");
+    expect(hiddenCount).toBe(1);
+
+    cleanup();
+  });
 });

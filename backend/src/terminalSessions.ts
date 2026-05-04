@@ -38,6 +38,13 @@ function serialize(message: unknown): string {
 }
 
 type SendableWebSocket = Pick<WebSocket, "readyState" | "OPEN" | "send">;
+type AttachOptions = {
+  replayHistory?: boolean;
+};
+type ListOptions = {
+  deviceId?: string;
+  tabIds?: string[];
+};
 
 export function sendSerializedMessage(socket: SendableWebSocket, payload: string, onError?: () => void): boolean {
   if (socket.readyState !== socket.OPEN) {
@@ -123,6 +130,52 @@ function defaultSessionName(mode: OpenCozySessionMode): string {
 
 function hasLineSubmission(data: string): boolean {
   return data.includes("\r") || data.includes("\n");
+}
+
+function readPrintableInputLine(draft: string, data: string): { draft: string; submitted: string | null } {
+  let nextDraft = draft;
+
+  for (let index = 0; index < data.length; index += 1) {
+    const character = data[index];
+
+    if (character === "\r" || character === "\n") {
+      const submitted = nextDraft.trim();
+      nextDraft = "";
+      if (submitted) {
+        return { draft: nextDraft, submitted };
+      }
+      continue;
+    }
+
+    if (character === "\b" || character === "\u007f") {
+      nextDraft = nextDraft.slice(0, -1);
+      continue;
+    }
+
+    if (character === "\u0003") {
+      nextDraft = "";
+      continue;
+    }
+
+    if (character === "\u001b") {
+      if (data[index + 1] === "[") {
+        for (let cursor = index + 2; cursor < data.length; cursor += 1) {
+          const code = data.charCodeAt(cursor);
+          if (code >= 0x40 && code <= 0x7e) {
+            index = cursor;
+            break;
+          }
+        }
+      }
+      continue;
+    }
+
+    if (character >= " " || character === "\t") {
+      nextDraft += character;
+    }
+  }
+
+  return { draft: nextDraft, submitted: null };
 }
 
 function stripAnsiControl(text: string): string {
@@ -214,7 +267,10 @@ class OpenCozyPtySession {
   private outputFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingOutput = "";
   private pendingCodexTitle: string | null = null;
+  private pendingInputLine = "";
   private status: "running" | "exited" = "running";
+  private firstSubmittedUserMessage: string | null = null;
+  private latestSubmittedUserMessage: string | null = null;
   private userRenamed = false;
   private exitCode: number | null = null;
   private updatedAt: string;
@@ -305,13 +361,13 @@ class OpenCozyPtySession {
     return this.toSummary();
   }
 
-  attach(socket: WebSocket): void {
+  attach(socket: WebSocket, options: AttachOptions = {}): void {
     this.clients.add(socket);
     if (!this.sendToClient(socket, { type: "status", session: this.summary() })) {
       return;
     }
 
-    if (this.history.length > 0) {
+    if (options.replayHistory !== false && this.history.length > 0) {
       if (!this.sendOutputToClient(socket, this.history)) {
         return;
       }
@@ -330,7 +386,7 @@ class OpenCozyPtySession {
       }
 
       if (message.type === "input" && this.status === "running") {
-        if (this.markResumePickerActivity(message.data)) {
+        if (this.markInputActivity(message.data)) {
           this.broadcastStatus();
         }
         this.ptyProcess.write(message.data);
@@ -469,7 +525,41 @@ class OpenCozyPtySession {
   }
 
   private isCodexThreadSyncSettled(): boolean {
-    return (this.mode === "resume" || this.mode === "resumeLast") && Boolean(this.codexThreadId) && !this.pendingCodexTitle && this.name !== defaultSessionName(this.mode);
+    return Boolean(this.codexThreadId) && !this.pendingCodexTitle && this.name !== defaultSessionName(this.mode);
+  }
+
+  private markInputActivity(data: string): boolean {
+    const didUpdateFromSubmittedPrompt = this.markSubmittedPromptActivity(data);
+    const didUpdateFromResumePicker = this.markResumePickerActivity(data);
+    return didUpdateFromSubmittedPrompt || didUpdateFromResumePicker;
+  }
+
+  private markSubmittedPromptActivity(data: string): boolean {
+    if ((this.mode !== "new" && this.mode !== "resume" && this.mode !== "resumeLast") || this.codexThreadId) {
+      return false;
+    }
+
+    const result = readPrintableInputLine(this.pendingInputLine, data);
+    this.pendingInputLine = result.draft;
+    if (!result.submitted) {
+      return false;
+    }
+
+    if (this.mode === "new" && !this.firstSubmittedUserMessage) {
+      this.firstSubmittedUserMessage = result.submitted;
+    }
+
+    if ((this.mode === "resume" || this.mode === "resumeLast") && !this.userRenamed && this.name === defaultSessionName(this.mode)) {
+      this.latestSubmittedUserMessage = result.submitted;
+    }
+
+    if (!this.firstSubmittedUserMessage && !this.latestSubmittedUserMessage) {
+      return false;
+    }
+
+    this.lastCodexThreadSyncAt = 0;
+    this.startCodexThreadSync();
+    return this.syncCodexThreadTitle({ force: true });
   }
 
   private markResumePickerActivity(data: string): boolean {
@@ -515,17 +605,7 @@ class OpenCozyPtySession {
 
     const previousName = this.name;
     const previousThreadId = this.codexThreadId;
-    const shouldDiscoverThread = !this.codexThreadId || (this.mode === "resume" && !this.userRenamed && this.name === defaultSessionName(this.mode));
-    if (shouldDiscoverThread && this.mode === "new" && !this.pendingCodexTitle) {
-      return false;
-    }
-    const isResumePickerDiscovery = (this.mode === "resume" || this.mode === "resumeLast") && !this.codexThreadId;
-    if (shouldDiscoverThread && isResumePickerDiscovery) {
-      return false;
-    }
-    const thread = !shouldDiscoverThread && this.codexThreadId
-      ? this.codexThreadStore.getThread(this.codexThreadId)
-      : this.codexThreadStore.findActiveThread(this.cwd, this.createdAtMs);
+    const thread = this.resolveCodexThread();
 
     if (!thread) {
       return false;
@@ -545,6 +625,30 @@ class OpenCozyPtySession {
     return previousName !== this.name || previousThreadId !== this.codexThreadId;
   }
 
+  private resolveCodexThread() {
+    if (!this.codexThreadStore) {
+      return null;
+    }
+
+    if (this.codexThreadId) {
+      return this.codexThreadStore.getThread(this.codexThreadId);
+    }
+
+    if (this.mode === "new") {
+      return this.firstSubmittedUserMessage
+        ? this.codexThreadStore.findThreadByFirstUserMessage(this.cwd, this.createdAtMs, this.firstSubmittedUserMessage)
+        : null;
+    }
+
+    if ((this.mode === "resume" || this.mode === "resumeLast") && !this.userRenamed && this.name === defaultSessionName(this.mode)) {
+      return this.latestSubmittedUserMessage
+        ? this.codexThreadStore.findThreadByRecentUserMessage(this.cwd, this.createdAtMs, this.latestSubmittedUserMessage)
+        : null;
+    }
+
+    return null;
+  }
+
   private touch(): void {
     this.updatedAt = new Date().toISOString();
   }
@@ -558,8 +662,14 @@ export class TerminalSessionManager {
     this.codexThreadStore = config.codexStateDbPath ? new CodexThreadStore(config.codexStateDbPath) : null;
   }
 
-  list(): OpenCozySessionSummary[] {
-    return Array.from(this.sessions.values())
+  list(options: ListOptions = {}): OpenCozySessionSummary[] {
+    const sessions = Array.from(this.sessions.values());
+    const explicitTabIds = new Set(options.tabIds ?? []);
+    const visibleSessions = sessions.filter((session) => (
+      (options.deviceId && session.deviceId === options.deviceId) || explicitTabIds.has(session.id)
+    ));
+
+    return visibleSessions
       .map((session) => session.summary())
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
@@ -575,13 +685,13 @@ export class TerminalSessionManager {
     return session ? session.rename(input) : null;
   }
 
-  attach(id: string, socket: WebSocket): boolean {
+  attach(id: string, socket: WebSocket, options: AttachOptions = {}): boolean {
     const session = this.sessions.get(id);
     if (!session) {
       return false;
     }
 
-    session.attach(socket);
+    session.attach(socket, options);
     return true;
   }
 

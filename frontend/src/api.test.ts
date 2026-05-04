@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { closeOpenCozySession, createOpenCozySession, updateOpenCozySession } from "./api";
+import { closeOpenCozySession, createOpenCozySession, listOpenCozySessions, updateOpenCozySession } from "./api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -15,6 +15,26 @@ describe("API requests", () => {
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const headers = init?.headers as Headers;
     expect(headers.has("Content-Type")).toBe(false);
+  });
+
+  it("can request a device-scoped OpenCozy session list", async () => {
+    const fetchMock = vi.fn(async () => Response.json([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listOpenCozySessions({ deviceId: "device-1" });
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit | undefined];
+    expect(url).toBe("/api/open-cozy-sessions?deviceId=device-1");
+  });
+
+  it("can request explicit device-local session tabs from other devices", async () => {
+    const fetchMock = vi.fn(async () => Response.json([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listOpenCozySessions({ deviceId: "device-1", tabIds: ["session-1", "session/2"] });
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit | undefined];
+    expect(url).toBe("/api/open-cozy-sessions?deviceId=device-1&tabId=session-1&tabId=session%2F2");
   });
 
   it("sends JSON content type when a request has a body", async () => {

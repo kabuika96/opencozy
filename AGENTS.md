@@ -18,6 +18,8 @@ This repo is wired for the installed engineering skills. Do not copy or download
 
 OpenCozy is a local-first PWA. Keep the first version small: a Codex-only remote terminal and saved LAN app shortcuts.
 
+For frontend UX, follow `docs/ux-guide.md` and the interface direction in `CONTEXT.md`: mobile-native, terminal-adjacent, simple, and powerful through restraint. Use plain action rows, subtle separators, compact spacing, and direct labels. Avoid fake terminal prompt styling, green button/card treatments, repetitive explanatory copy, and marketing-like empty states.
+
 ## Backend restart rule
 
 Always ask the user for explicit permission before restarting, stopping, killing, or otherwise replacing the backend process. This includes `npm run services:restart`, `./scripts/opencozy-services.sh restart`, backend LaunchAgent unload/kickstart operations, and killing backend Node processes.
@@ -25,3 +27,11 @@ Always ask the user for explicit permission before restarting, stopping, killing
 Reason: the backend owns live Codex PTYs. Restarting it kills active OpenCozy/Codex sessions, can close browser WebSockets with `1006`, and can cause Codex to report `Conversation interrupted` after resume.
 
 Frontend changes can update through Vite/HMR without this permission. Backend changes should be verified with tests first, then the agent should tell the user that a backend restart is needed and wait for approval before doing it.
+
+When the approved restart request is coming through an OpenCozy-hosted Codex session, schedule the restart from a detached process so the backend can kill the current PTY without cancelling the restart:
+
+```sh
+tmux new-session -d -s opencozy-backend-restart 'cd /Users/openclaw/Documents/projects/opencozy && sleep 2 && npm run services:restart > /tmp/opencozy-backend-restart.log 2>&1'
+```
+
+After that, verify `/tmp/opencozy-backend-restart.log`, `curl -fsS http://127.0.0.1:8788/api/health`, `curl -fsS http://127.0.0.1:5175/`, and `./scripts/opencozy-services.sh status`. Do not issue a second restart just because the original session disconnected.
