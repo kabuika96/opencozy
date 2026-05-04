@@ -367,16 +367,9 @@ describe("OpenCozy session WebSocket route", () => {
     });
   });
 
-  it("updates a resume picker session title to the Codex session selected after launch", async () => {
-    const fixture = makeTestCodexBin(["process.stdin.resume();"]);
+  it("does not title a resume picker session from another device's newer Codex thread", async () => {
+    const fixture = makeTestCodexBin(["process.stdout.write('resume picker ready\\n');", "process.stdin.resume();"]);
     const codexStateDbPath = createCodexStateDb(fixture.cwd);
-    insertCodexThread(codexStateDbPath, {
-      id: "stale-thread",
-      title: "Stale Session",
-      cwd: fixture.cwd,
-      updatedAtMs: Date.now() - 10_000
-    });
-
     const server = buildServer({
       host: "127.0.0.1",
       port: 0,
@@ -394,62 +387,48 @@ describe("OpenCozy session WebSocket route", () => {
       url: "/api/open-cozy-sessions",
       payload: {
         mode: "resume",
-        cwd: fixture.cwd
+        cwd: fixture.cwd,
+        deviceId: "device-1"
       }
     });
     expect(createResponse.statusCode).toBe(201);
     const session = createResponse.json<{ id: string; name: string; codexThreadId: string | null }>();
     expect(session).toMatchObject({ name: "Sessions", codexThreadId: null });
-    insertCodexThread(codexStateDbPath, {
-      id: "unrelated-active-thread",
-      title: "Unrelated Active Session",
-      cwd: fixture.cwd,
-      updatedAtMs: Date.now() + 1
-    });
 
-    const selectedTitle = new Promise<{ name: string; codexThreadId: string | null }>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Session title did not update after resume selection")), 3_000);
-      let insertedSelectedThread = false;
-      let confirmedResumePicker = false;
-
+    const sawResumePicker = new Promise<void>((resolve) => {
       void server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {}, {
         onInit: (socket) => {
           socket.on("message", (data) => {
-            const parsed = JSON.parse(data.toString()) as {
-              type: string;
-              session?: { name: string; codexThreadId: string | null };
-            };
-            if (parsed.type !== "status" || !parsed.session) {
-              return;
-            }
-
-            if (parsed.session.name === "Sessions" && !insertedSelectedThread) {
-              insertedSelectedThread = true;
-              if (!confirmedResumePicker) {
-                confirmedResumePicker = true;
-                socket.send(JSON.stringify({ type: "input", data: "\r" }));
-              }
-              insertCodexThread(codexStateDbPath, {
-                id: "selected-thread",
-                title: "Selected Session",
-                cwd: fixture.cwd,
-                updatedAtMs: Date.now() + 10_000
-              });
-            }
-
-            if (parsed.session.name === "Selected Session") {
-              clearTimeout(timeout);
-              resolve(parsed.session);
+            const parsed = JSON.parse(data.toString()) as { type: string; data?: string };
+            if (parsed.type === "output" && parsed.data?.includes("resume picker ready")) {
+              socket.send(JSON.stringify({ type: "input", data: "\r" }));
+              resolve();
             }
           });
         }
       });
     });
+    await sawResumePicker;
 
-    await expect(selectedTitle).resolves.toMatchObject({
-      name: "Selected Session",
-      codexThreadId: "selected-thread"
+    insertCodexThread(codexStateDbPath, {
+      id: "other-device-thread",
+      title: "Other Device Session",
+      cwd: fixture.cwd,
+      updatedAtMs: Date.now() + 10_000
     });
+
+    const listResponse = await server.inject({
+      method: "GET",
+      url: "/api/open-cozy-sessions"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json<Array<{ id: string; name: string; codexThreadId: string | null }>>()).toContainEqual(
+      expect.objectContaining({
+        id: session.id,
+        name: "Sessions",
+        codexThreadId: null
+      })
+    );
 
     await server.inject({
       method: "DELETE",

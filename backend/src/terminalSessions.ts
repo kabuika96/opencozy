@@ -214,7 +214,6 @@ class OpenCozyPtySession {
   private outputFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingOutput = "";
   private pendingCodexTitle: string | null = null;
-  private resumePickerConfirmedAtMs: number | null = null;
   private status: "running" | "exited" = "running";
   private userRenamed = false;
   private exitCode: number | null = null;
@@ -478,7 +477,6 @@ class OpenCozyPtySession {
       return false;
     }
 
-    this.resumePickerConfirmedAtMs = Date.now();
     this.lastCodexThreadSyncAt = 0;
     return this.syncResumePickerSelectionFromHistory();
   }
@@ -522,13 +520,12 @@ class OpenCozyPtySession {
       return false;
     }
     const isResumePickerDiscovery = (this.mode === "resume" || this.mode === "resumeLast") && !this.codexThreadId;
-    const discoverySinceMs = isResumePickerDiscovery ? this.resumePickerConfirmedAtMs : this.createdAtMs;
-    if (shouldDiscoverThread && discoverySinceMs === null) {
+    if (shouldDiscoverThread && isResumePickerDiscovery) {
       return false;
     }
     const thread = !shouldDiscoverThread && this.codexThreadId
       ? this.codexThreadStore.getThread(this.codexThreadId)
-      : this.codexThreadStore.findActiveThread(this.cwd, discoverySinceMs ?? this.createdAtMs);
+      : this.codexThreadStore.findActiveThread(this.cwd, this.createdAtMs);
 
     if (!thread) {
       return false;
