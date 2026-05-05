@@ -1,11 +1,11 @@
 # OpenCozy
 
-OpenCozy is a local-first PWA for using Codex from an iPhone while Codex runs on a separate computer you control. It exists to provide a mobile interface to Codex without turning into a general-purpose remote shell; LAN is the default access path, and Private WAN Access is only for explicitly enrolled devices.
+OpenCozy is a secure PWA for running Codex from a phone while Codex stays on a separate computer you control. It exists to provide a mobile interface to Codex without turning into a general-purpose remote shell. Access may be local, LAN, or Private WAN, but every path must stay inside a trusted private boundary.
 
 ## Language
 
 **Codex Host**:
-The LAN computer that runs the OpenCozy backend and starts Codex processes.
+The user-controlled computer that runs the OpenCozy backend and starts Codex processes.
 _Avoid_: server, remote machine
 
 **Enrolled Device**:
@@ -17,7 +17,7 @@ Remote OpenCozy access for Enrolled Devices through an authenticated device-netw
 _Avoid_: public URL, internet deployment
 
 **Developer OpenCozy Origin**:
-The Vite developer server acting as the single browser-facing OpenCozy Origin during local-first and experimental Private WAN Access use. Because OpenCozy is a developer-mode tool, this origin may remain Vite-based as long as the backend stays localhost-only behind it and accepted hostnames are explicit.
+The Vite developer server acting as the single browser-facing OpenCozy Origin during direct LAN and Private WAN Access use. Because OpenCozy is a developer-mode tool, this origin may remain Vite-based as long as the backend stays localhost-only behind it for WAN access and accepted hostnames are explicit.
 _Avoid_: production server, hardened gateway
 
 **Network-Agnostic PWA**:
@@ -25,7 +25,7 @@ The OpenCozy frontend should behave the same whether the OpenCozy Origin is reac
 _Avoid_: remote mode UI, LAN mode UI
 
 **Vendor-Neutral LAN Path**:
-The default OpenCozy usage path where a phone or tablet reaches the Codex Host directly on the same trusted local network, without requiring a third-party overlay network or hosted service. This path must remain available even when optional Private WAN Access docs or helpers exist.
+The no-vendor access path where a phone or tablet reaches the Codex Host directly on the same trusted local network, without requiring a third-party overlay network or hosted service. This path must remain available even when Private WAN Access docs or helpers exist.
 _Avoid_: legacy mode, fallback mode
 
 **OpenCozy Origin**:
@@ -77,7 +77,7 @@ _Avoid_: discovered app, deployment
 - A **Codex Host** runs zero or more **OpenCozy Sessions**.
 - An **Enrolled Device** may reach the **Codex Host** through **Private WAN Access**.
 - **Private WAN Access** preserves the trusted-device boundary; it does not authorize anonymous or public clients.
-- The **Vendor-Neutral LAN Path** remains the default OSS baseline. Tailscale may be the recommended first Private WAN Access provider, but OpenCozy must not require it for LAN use.
+- The **Vendor-Neutral LAN Path** remains supported. Tailscale may be the recommended first Private WAN Access provider, but OpenCozy must not require it for direct LAN use.
 - In Private WAN Access mode, Enrolled Devices should use one **OpenCozy Origin**. The backend should stay localhost-only behind that origin rather than being directly reachable as a second WAN endpoint.
 - The first Tailscale-based Private WAN Access path may use the **Developer OpenCozy Origin** rather than a separate production-style server.
 - Tailscale-based Private WAN Access should set the backend host to `127.0.0.1`; LAN development may keep `0.0.0.0` for same-network browser access.

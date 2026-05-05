@@ -1,6 +1,8 @@
 # Private WAN Agent Setup
 
-Use this when setting up OpenCozy for access from enrolled devices away from the LAN. The default OSS path remains LAN-only; Private WAN is optional and should use Tailscale Serve, not Funnel.
+Use this when setting up OpenCozy for access from enrolled devices away from the same local network. Private WAN should use Tailscale Serve, not Funnel.
+
+During a fresh OpenCozy install, first get the local app working. Then ask the user whether they want private WAN access through Tailscale Serve. If they agree, proceed through this guide end to end. If they decline, leave WAN disabled and report the local/LAN URLs only.
 
 ## Requirements
 
@@ -9,7 +11,7 @@ Use this when setting up OpenCozy for access from enrolled devices away from the
 - Tailscale Serve enabled for the tailnet.
 - HTTPS available through Tailscale Serve.
 - `OPENCOZY_HOST=127.0.0.1` so the backend is not directly exposed.
-- `OPENCOZY_ALLOWED_HOSTS` includes every browser-facing LAN and tailnet hostname.
+- `OPENCOZY_ALLOWED_HOSTS` includes every browser-facing hostname or IP the user will open.
 - `OPENCOZY_TAILSCALE_SOCKET` is set when using a non-default Tailscale daemon socket.
 
 Do not use Tailscale Funnel. Do not expose the backend port directly.
@@ -54,7 +56,7 @@ For WAN access, start the local OpenCozy services and Tailscale Serve together:
 npm run wan:start
 ```
 
-That is equivalent to starting the LAN services, then publishing the frontend through the tailnet-private HTTPS origin:
+That is equivalent to starting the local OpenCozy services, then publishing the frontend through the tailnet-private HTTPS origin:
 
 ```sh
 npm run services:start

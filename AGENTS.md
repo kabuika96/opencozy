@@ -16,7 +16,7 @@ This repo is wired for the installed engineering skills. Do not copy or download
 
 ## Project notes
 
-OpenCozy is a local-first PWA. Keep the first version small: a Codex-only remote terminal and saved LAN app shortcuts.
+OpenCozy is a secure PWA for running Codex from a phone. Keep the first version small: a Codex-only mobile terminal, saved app shortcuts, and trusted private access without becoming a general remote shell.
 
 For frontend UX, follow `docs/ux-guide.md` and the interface direction in `CONTEXT.md`: mobile-native, terminal-adjacent, simple, and powerful through restraint. Use plain action rows, subtle separators, compact spacing, and direct labels. Avoid fake terminal prompt styling, green button/card treatments, repetitive explanatory copy, and marketing-like empty states.
 
@@ -40,4 +40,6 @@ After that, verify `/tmp/opencozy-backend-restart.log`, `curl -fsS http://127.0.
 
 For Tailscale-based Private WAN setup, follow [docs/private-wan-agent-setup.md](docs/private-wan-agent-setup.md). The key boundaries are: backend localhost-only, frontend as the single OpenCozy origin, explicit `OPENCOZY_ALLOWED_HOSTS`, HTTPS through Tailscale Serve, no Tailscale Funnel, and no direct backend exposure. OpenCozy Settings shows the current WAN Tunnel config and state once the backend has loaded the relevant `.env`.
 
-Use `npm run lan:start` for LAN-only access. Use `npm run wan:start` when the user wants OpenCozy available through both LAN and Tailscale; it starts local OpenCozy services and then enables Tailscale Serve. Use `npm run private-wan:stop` only when disabling the HTTPS tailnet origin while leaving LAN OpenCozy running. Use `npm run wan:stop` only when the user explicitly asks to stop WAN OpenCozy as a whole; it disables Serve and stops the local OpenCozy services, so the backend restart/stop permission rule applies.
+During installation or setup, after local OpenCozy works, ask the user whether they want private WAN access through Tailscale Serve. If they agree, proceed with the WAN setup guide end to end; if they decline, leave WAN disabled and keep direct local/LAN access working.
+
+Use `npm run lan:start` for direct local/LAN access. Use `npm run wan:start` when the user wants OpenCozy available through the local services and Tailscale; it starts local OpenCozy services and then enables Tailscale Serve. Use `npm run private-wan:stop` only when disabling the HTTPS tailnet origin while leaving local services running. Use `npm run wan:stop` only when the user explicitly asks to stop WAN OpenCozy as a whole; it disables Serve and stops the local OpenCozy services, so the backend restart/stop permission rule applies.
