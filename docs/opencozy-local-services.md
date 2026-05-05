@@ -87,7 +87,7 @@ Follow logs:
 
 ## Private WAN With Tailscale Serve
 
-The default OpenCozy path is still direct LAN access. For access away from the LAN, use Tailscale Serve to publish the frontend dev server as one tailnet-private HTTPS OpenCozy origin. Tailscale Serve is private to your tailnet; Tailscale Funnel is public and is not supported for OpenCozy.
+For phone access away from the same local network, use Tailscale Serve to publish the frontend dev server as one tailnet-private HTTPS OpenCozy origin. Tailscale Serve is private to your tailnet; Tailscale Funnel is public and is not supported for OpenCozy.
 
 On macOS, the preferred path is the official Tailscale app. For developer machines where only the Homebrew CLI is installed, OpenCozy also includes an optional user-mode Tailscale daemon helper:
 
@@ -109,11 +109,11 @@ OPENCOZY_ALLOWED_HOSTS=jarvis.local,10.0.0.158,jarvis.your-tailnet.ts.net
 OPENCOZY_TAILSCALE_SOCKET=/Users/you/.local/share/opencozy-tailscale/tailscaled.sock
 ```
 
-`OPENCOZY_ALLOWED_HOSTS` should contain the browser-facing names you actually open, without `https://` and without paths. Include the LAN hostname or IP if you want the same service to work from LAN and Tailscale.
+`OPENCOZY_ALLOWED_HOSTS` should contain the browser-facing names you actually open, without `https://` and without paths. Include direct LAN hostnames or IPs if you want the same service to work from LAN and Tailscale.
 
 ## Access Lifecycle
 
-LAN access starts only the local OpenCozy backend and frontend:
+Direct local/LAN access starts only the local OpenCozy backend and frontend:
 
 ```sh
 npm run lan:start
@@ -121,13 +121,13 @@ npm run lan:start
 
 Open the LAN URL printed by Vite or shown in the service logs, such as `http://<lan-host>:5175/`.
 
-WAN access starts the same local OpenCozy services and then enables the Tailscale Serve HTTPS origin:
+Private WAN access starts the same local OpenCozy services and then enables the Tailscale Serve HTTPS origin:
 
 ```sh
 npm run wan:start
 ```
 
-Use `wan:start` when the user asks for OpenCozy to be available on both LAN and enrolled Tailscale devices. It runs the same local service startup as `lan:start`, then runs `npm run private-wan:serve`. If the services are already loaded, startup leaves them running instead of replacing the backend process.
+Use `wan:start` when the user asks for OpenCozy to be available through local services and enrolled Tailscale devices. It runs the same local service startup as `lan:start`, then runs `npm run private-wan:serve`. If the services are already loaded, startup leaves them running instead of replacing the backend process.
 
 Check that the local WAN configuration is ready:
 
@@ -149,7 +149,7 @@ npm run private-wan:status
 
 Open the reported `https://...ts.net` URL from an enrolled device. The frontend proxies API and WebSocket traffic to the localhost backend, so the backend port should not be reachable as a second WAN endpoint.
 
-To disable only the Tailscale HTTPS origin and leave LAN OpenCozy running:
+To disable only the Tailscale HTTPS origin and leave local OpenCozy running:
 
 ```sh
 npm run private-wan:stop
@@ -161,7 +161,7 @@ To take down WAN OpenCozy as a whole, stop Serve and the local OpenCozy services
 npm run wan:stop
 ```
 
-To take down LAN-only OpenCozy:
+To take down direct local/LAN OpenCozy:
 
 ```sh
 npm run lan:stop

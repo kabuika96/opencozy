@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "LAN-hosted PWA for running Codex from a phone or tablet.",
+  "description": "Secure PWA for running Codex from a phone or tablet.",
   "type": "module",
   "packageManager": "npm@11.11.0",
   "engines": {
