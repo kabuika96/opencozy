@@ -28,6 +28,7 @@ import {
   closeOpenCozySession,
   createOpenCozySession,
   getCodexCapabilities,
+  getWanTunnelStatus,
   listOpenCozySessions,
   updateOpenCozySession
 } from "./api";
@@ -76,7 +77,8 @@ import { bindTerminalTouchScroll } from "./terminalTouchScroll";
 import { getTerminalVisualCursorStyle } from "./terminalVisualCursor";
 import type {
   OpenCozySessionMode,
-  OpenCozySessionSummary
+  OpenCozySessionSummary,
+  WanTunnelStatus
 } from "./types";
 
 type Overlay = "editSessionTitle" | "preview" | "settings" | null;
@@ -194,6 +196,81 @@ function SessionLoadingState({
       </span>
     </div>
   );
+}
+
+function readWanTunnelSummary(status: WanTunnelStatus | null, loading: boolean, error: string | null): { detail: string; state: string } {
+  if (loading && !status) {
+    return { detail: "Checking local configuration", state: "Checking" };
+  }
+
+  if (error) {
+    return { detail: error, state: "Unavailable" };
+  }
+
+  if (!status) {
+    return { detail: "Open settings again to refresh tunnel state", state: "Unknown" };
+  }
+
+  if (!status.config.backendLocalOnly) {
+    return { detail: "Backend is not localhost-only", state: "Needs config" };
+  }
+
+  if (!status.tailscale.cliAvailable) {
+    return { detail: "Tailscale CLI is not installed", state: "Not installed" };
+  }
+
+  if (!status.tailscale.daemonReachable) {
+    return { detail: status.tailscale.error || "Tailscale daemon is not reachable", state: "Offline" };
+  }
+
+  if (!status.tailscale.serveConfigured) {
+    return { detail: "Tailscale node is enrolled, Serve is not configured", state: "Serve off" };
+  }
+
+  return { detail: status.tailscale.httpsOrigin || "Tailscale Serve is configured", state: "Ready" };
+}
+
+function readLanAccessHosts(status: WanTunnelStatus | null): string {
+  if (!status) {
+    return "Unknown";
+  }
+
+  const tailnetSuffix = status.tailscale.tailnetSuffix;
+  const lanHosts = status.config.allowedHosts.filter((host) => !tailnetSuffix || !host.endsWith(tailnetSuffix));
+  return joinOrNone(lanHosts);
+}
+
+function readWanAccessOrigin(status: WanTunnelStatus | null): string {
+  if (!status) {
+    return "Unknown";
+  }
+
+  if (!status.tailscale.cliAvailable) {
+    return "Tailscale not installed";
+  }
+
+  if (!status.tailscale.daemonReachable) {
+    return "Tailscale offline";
+  }
+
+  if (!status.tailscale.serveConfigured) {
+    return "Serve off";
+  }
+
+  return status.tailscale.httpsOrigin ?? "Configured";
+}
+
+function readBackendAccess(status: WanTunnelStatus | null): string {
+  if (!status) {
+    return "Unknown";
+  }
+
+  const address = `${status.config.backendHost}:${status.config.backendPort}`;
+  return status.config.backendLocalOnly ? `Localhost only (${address})` : `Exposed bind (${address})`;
+}
+
+function joinOrNone(values: string[]): string {
+  return values.length > 0 ? values.join(", ") : "None";
 }
 
 function TerminalPane({
@@ -1020,6 +1097,9 @@ export default function App() {
   const [previewTipCopied, setPreviewTipCopied] = useState(false);
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [terminalPreferences, setTerminalPreferences] = useState(() => readMobileTerminalPreferences());
+  const [wanTunnelStatus, setWanTunnelStatus] = useState<WanTunnelStatus | null>(null);
+  const [wanTunnelLoading, setWanTunnelLoading] = useState(false);
+  const [wanTunnelError, setWanTunnelError] = useState<string | null>(null);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [addSessionMenuOpen, setAddSessionMenuOpen] = useState(false);
   const [confirmCloseSessionId, setConfirmCloseSessionId] = useState<string | null>(null);
@@ -1041,6 +1121,10 @@ export default function App() {
   const confirmCloseSession = useMemo(
     () => (confirmCloseSessionId ? sessionById.get(confirmCloseSessionId) ?? null : null),
     [confirmCloseSessionId, sessionById]
+  );
+  const wanTunnelSummary = useMemo(
+    () => readWanTunnelSummary(wanTunnelStatus, wanTunnelLoading, wanTunnelError),
+    [wanTunnelError, wanTunnelLoading, wanTunnelStatus]
   );
 
   useEffect(() => {
@@ -1088,6 +1172,27 @@ export default function App() {
       setPreviewFrameLoaded(false);
     }
   }, [overlay, previewUrl]);
+
+  const refreshWanTunnelStatus = useCallback(async () => {
+    setWanTunnelLoading(true);
+    setWanTunnelError(null);
+
+    try {
+      setWanTunnelStatus(await getWanTunnelStatus());
+    } catch (statusError) {
+      setWanTunnelError(statusError instanceof Error ? statusError.message : "Failed to read WAN tunnel state");
+    } finally {
+      setWanTunnelLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (overlay !== "settings") {
+      return;
+    }
+
+    void refreshWanTunnelStatus();
+  }, [overlay, refreshWanTunnelStatus]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -1591,7 +1696,7 @@ export default function App() {
       {overlay === "settings" && (
         <section className="settingsPage" data-opencozy-scrollable="true" aria-label="Settings">
           <header className="settingsPageHeader">
-            <h2>Keyboard Settings</h2>
+            <h2>Settings</h2>
             <button
               className="iconButton"
               type="button"
@@ -1602,45 +1707,117 @@ export default function App() {
             </button>
           </header>
           <div className="settingsPageContent">
-            <div className="settingsIntro">
-              <p>Native keyboard behavior for terminal input on this device.</p>
-            </div>
-            <div className="settingsList" role="group" aria-label="Keyboard settings">
-              <label className="settingRow">
-                <span className="settingText">
-                  <span className="settingLabel">Keyboard autocorrect</span>
-                  <span className="settingHint">Use spelling fixes and typing suggestions while composing.</span>
-                </span>
-                <span className="settingSwitchWrap">
-                  <input
-                    className="settingSwitchInput"
-                    type="checkbox"
-                    checked={terminalPreferences.autocorrect}
-                    onChange={(event) => updateTerminalPreference("autocorrect", event.currentTarget.checked)}
-                  />
-                  <span className={terminalPreferences.autocorrect ? "settingSwitch active" : "settingSwitch"} aria-hidden="true">
-                    <span className="settingSwitchThumb" />
+            <section className="settingsSection" aria-labelledby="keyboardSettingsTitle">
+              <div className="settingsSectionHeader">
+                <h3 id="keyboardSettingsTitle">Keyboard</h3>
+                <p>Native keyboard behavior for terminal input on this device.</p>
+              </div>
+              <div className="settingsList" role="group" aria-label="Keyboard settings">
+                <label className="settingRow">
+                  <span className="settingText">
+                    <span className="settingLabel">Autocorrect</span>
+                    <span className="settingHint">Use spelling fixes and typing suggestions while composing.</span>
                   </span>
-                </span>
-              </label>
-              <label className="settingRow">
-                <span className="settingText">
-                  <span className="settingLabel">Keyboard autocapitalization</span>
-                  <span className="settingHint">Let the keyboard capitalize sentence starts automatically.</span>
-                </span>
-                <span className="settingSwitchWrap">
-                  <input
-                    className="settingSwitchInput"
-                    type="checkbox"
-                    checked={terminalPreferences.autocapitalization}
-                    onChange={(event) => updateTerminalPreference("autocapitalization", event.currentTarget.checked)}
-                  />
-                  <span className={terminalPreferences.autocapitalization ? "settingSwitch active" : "settingSwitch"} aria-hidden="true">
-                    <span className="settingSwitchThumb" />
+                  <span className="settingSwitchWrap">
+                    <input
+                      className="settingSwitchInput"
+                      type="checkbox"
+                      checked={terminalPreferences.autocorrect}
+                      onChange={(event) => updateTerminalPreference("autocorrect", event.currentTarget.checked)}
+                    />
+                    <span className={terminalPreferences.autocorrect ? "settingSwitch active" : "settingSwitch"} aria-hidden="true">
+                      <span className="settingSwitchThumb" />
+                    </span>
                   </span>
+                </label>
+                <label className="settingRow">
+                  <span className="settingText">
+                    <span className="settingLabel">Autocapitalization</span>
+                    <span className="settingHint">Let the keyboard capitalize sentence starts automatically.</span>
+                  </span>
+                  <span className="settingSwitchWrap">
+                    <input
+                      className="settingSwitchInput"
+                      type="checkbox"
+                      checked={terminalPreferences.autocapitalization}
+                      onChange={(event) => updateTerminalPreference("autocapitalization", event.currentTarget.checked)}
+                    />
+                    <span className={terminalPreferences.autocapitalization ? "settingSwitch active" : "settingSwitch"} aria-hidden="true">
+                      <span className="settingSwitchThumb" />
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </section>
+
+            <section className="settingsSection" aria-labelledby="accessSettingsTitle">
+              <div className="settingsSectionHeader settingsSectionHeaderWithAction">
+                <span>
+                  <h3 id="accessSettingsTitle">Access</h3>
+                  <p>LAN and enrolled Tailscale devices use the same OpenCozy service.</p>
                 </span>
-              </label>
-            </div>
+                <button className="settingsTextButton" type="button" onClick={() => void refreshWanTunnelStatus()} disabled={wanTunnelLoading}>
+                  Refresh
+                </button>
+              </div>
+              <div className="accessStatus" role="status" aria-live="polite">
+                <span className={wanTunnelStatus?.tailscale.serveConfigured ? "accessStatusDot accessStatusDotReady" : "accessStatusDot"} aria-hidden="true" />
+                <span className="accessStatusText">
+                  <strong>{wanTunnelSummary.state}</strong>
+                  <span>{wanTunnelSummary.detail}</span>
+                </span>
+              </div>
+              <dl className="accessSummaryList">
+                <div>
+                  <dt>WAN</dt>
+                  <dd>{readWanAccessOrigin(wanTunnelStatus)}</dd>
+                </div>
+                <div>
+                  <dt>LAN</dt>
+                  <dd>{readLanAccessHosts(wanTunnelStatus)}</dd>
+                </div>
+                <div>
+                  <dt>Backend</dt>
+                  <dd>{readBackendAccess(wanTunnelStatus)}</dd>
+                </div>
+              </dl>
+              <details className="settingsDetails">
+                <summary>
+                  <span>Diagnostics</span>
+                  <ChevronRight size={15} aria-hidden="true" />
+                </summary>
+                <dl className="settingsDefinitionList">
+                  <div>
+                    <dt>OpenCozy origin</dt>
+                    <dd>{wanTunnelStatus?.tailscale.httpsOrigin ?? "Not available"}</dd>
+                  </div>
+                  <div>
+                    <dt>Frontend target</dt>
+                    <dd>{wanTunnelStatus?.config.serveTarget ?? "Unknown"}</dd>
+                  </div>
+                  <div>
+                    <dt>Allowed hosts</dt>
+                    <dd>{joinOrNone(wanTunnelStatus?.config.allowedHosts ?? [])}</dd>
+                  </div>
+                  <div>
+                    <dt>Tailscale node</dt>
+                    <dd>{wanTunnelStatus?.tailscale.nodeName ?? "Not enrolled"}</dd>
+                  </div>
+                  <div>
+                    <dt>Tailscale IPs</dt>
+                    <dd>{joinOrNone(wanTunnelStatus?.tailscale.ips ?? [])}</dd>
+                  </div>
+                  <div>
+                    <dt>Tailscale socket</dt>
+                    <dd>{wanTunnelStatus?.config.tailscaleSocket ?? "Default"}</dd>
+                  </div>
+                  <div>
+                    <dt>Serve config</dt>
+                    <dd>{wanTunnelStatus?.tailscale.serveStatus ?? "Unknown"}</dd>
+                  </div>
+                </dl>
+              </details>
+            </section>
           </div>
         </section>
       )}

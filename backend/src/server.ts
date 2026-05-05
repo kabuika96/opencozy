@@ -1,11 +1,12 @@
 import { pathToFileURL } from "node:url";
 import websocket from "@fastify/websocket";
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest } from "fastify";
 import { AppStore } from "./appStore.js";
 import { getCodexCapabilities } from "./codexCli.js";
 import { readConfig, type OpenCozyConfig } from "./config.js";
 import { TerminalSessionManager } from "./terminalSessions.js";
 import { parseAppShortcutInput, parseCreateOpenCozySessionInput, parseRenameOpenCozySessionInput } from "./validation.js";
+import { readWanTunnelStatus } from "./wanTunnel.js";
 
 type RouteParams = {
   id: string;
@@ -14,6 +15,91 @@ type SessionListQuery = {
   deviceId?: string;
   tabId?: string | string[];
 };
+type ParsedHost = {
+  host: string;
+  hostname: string;
+};
+
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+function normalizeHostPart(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function parseHostLike(value: string | undefined): ParsedHost | null {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  try {
+    const trimmed = value.trim();
+    const url = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? new URL(trimmed) : new URL(`http://${trimmed}`);
+    return {
+      host: normalizeHostPart(url.host),
+      hostname: normalizeHostPart(url.hostname)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackHostname(value: string): boolean {
+  return LOOPBACK_HOSTNAMES.has(normalizeHostPart(value));
+}
+
+function isLoopbackAddress(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = normalizeHostPart(value);
+  return normalized === "127.0.0.1" || normalized === "::1" || normalized === "::ffff:127.0.0.1";
+}
+
+function makeAllowedHostSet(allowedHosts: string[] | undefined): Set<string> {
+  const allowed = new Set<string>();
+  for (const value of allowedHosts ?? []) {
+    const parsed = parseHostLike(value);
+    if (!parsed) {
+      continue;
+    }
+
+    allowed.add(parsed.host);
+    allowed.add(parsed.hostname);
+  }
+
+  return allowed;
+}
+
+function matchesAllowedHost(value: string | undefined, allowedHosts: Set<string>, request: FastifyRequest): boolean {
+  const parsed = parseHostLike(value);
+  if (!parsed) {
+    return false;
+  }
+
+  if (allowedHosts.has(parsed.host) || allowedHosts.has(parsed.hostname)) {
+    return true;
+  }
+
+  return isLoopbackHostname(parsed.hostname) && isLoopbackAddress(request.ip);
+}
+
+function isRequestAllowedByOrigin(request: FastifyRequest, allowedHosts: Set<string>): boolean {
+  if (allowedHosts.size === 0) {
+    return true;
+  }
+
+  if (!matchesAllowedHost(request.headers.host, allowedHosts, request)) {
+    return false;
+  }
+
+  const origin = request.headers.origin;
+  if (origin === undefined) {
+    return true;
+  }
+
+  return typeof origin === "string" && matchesAllowedHost(origin, allowedHosts, request);
+}
 
 function readRouteId(requestUrl: string): string | null {
   const pathname = new URL(requestUrl, "http://opencozy.local").pathname;
@@ -74,10 +160,17 @@ export function buildServer(config: OpenCozyConfig = readConfig()) {
   });
   const appStore = new AppStore(config.dbPath);
   const terminalSessions = new TerminalSessionManager(config);
+  const allowedHosts = makeAllowedHostSet(config.allowedHosts);
 
   app.addHook("onClose", async () => {
     terminalSessions.closeAll();
     appStore.close();
+  });
+
+  app.addHook("preValidation", async (request, reply) => {
+    if (!isRequestAllowedByOrigin(request, allowedHosts)) {
+      return reply.code(403).send({ error: "OpenCozy origin is not allowed" });
+    }
   });
 
   app.register(websocket);
@@ -100,6 +193,8 @@ export function buildServer(config: OpenCozyConfig = readConfig()) {
   }));
 
   app.get("/api/codex", async () => getCodexCapabilities(config.codexBin));
+
+  app.get("/api/wan-tunnel", async () => readWanTunnelStatus(config));
 
   app.get("/api/apps", async () => appStore.list());
 

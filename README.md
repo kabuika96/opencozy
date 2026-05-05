@@ -1,10 +1,10 @@
 # OpenCozy
 
-OpenCozy is an open-source, LAN-hosted PWA for using Codex from a phone or tablet while Codex runs on a computer you control.
+OpenCozy is an open-source PWA for using Codex from a phone or tablet while Codex runs on a computer you control.
 
-It starts Codex in a PTY on the Codex Host and streams the terminal into a mobile-friendly browser app. It is intentionally small: no cloud account, no remote shell, and no internet-facing deployment story.
+It starts Codex in a PTY on the Codex Host and streams the terminal into a mobile-friendly browser app. It is intentionally small: no cloud account, no remote shell, and no public internet exposure path.
 
-> Status: early alpha. OpenCozy is for trusted local networks, not public internet exposure.
+> Status: early alpha. OpenCozy is for trusted local networks and explicitly enrolled private-network devices, not public internet exposure.
 
 > Agents: start with [AGENTS.md](AGENTS.md). Humans: this README is the map.
 
@@ -95,13 +95,43 @@ The most common settings are:
 - `OPENCOZY_DB_PATH`: local SQLite state path. Defaults to `./data/opencozy.sqlite`.
 - `OPENCOZY_CODEX_BIN`: Codex command or absolute path. Defaults to `codex`.
 - `OPENCOZY_CODEX_CWD`: default Codex working directory. Defaults to the OS user's home directory.
-- `OPENCOZY_ALLOWED_HOSTS`: optional comma-separated hostnames accepted by Vite during LAN development.
+- `OPENCOZY_ALLOWED_HOSTS`: optional comma-separated browser-facing hostnames accepted by the frontend and backend origin guard. Include every LAN and private-WAN hostname or IP you intend to use.
+
+## Private WAN Access
+
+The default OSS path is still LAN access. For remote access from your own enrolled devices, use a private device network such as Tailscale and keep OpenCozy behind a tailnet-private HTTPS origin.
+
+Recommended first setup:
+
+- Bind the backend to `127.0.0.1`.
+- Serve the Vite frontend as the single OpenCozy origin.
+- Put Tailscale Serve in front of that frontend origin with HTTPS.
+- Set `OPENCOZY_ALLOWED_HOSTS` to the exact LAN and tailnet hostnames you will open in the browser.
+- Do not expose the backend port directly.
+- Do not use Tailscale Funnel or another public internet tunnel for OpenCozy.
+
+See [docs/opencozy-local-services.md](docs/opencozy-local-services.md#private-wan-with-tailscale-serve), [docs/private-wan-agent-setup.md](docs/private-wan-agent-setup.md), [SECURITY.md](SECURITY.md), and [ADR 0005](docs/adr/0005-private-wan-through-tailscale-serve.md).
+
+Helpers:
+
+```sh
+npm run wan:start
+npm run wan:stop
+npm run private-wan:doctor
+npm run private-wan:serve
+npm run private-wan:status
+npm run private-wan:stop
+```
+
+Use `wan:start` when OpenCozy should be available on both LAN and enrolled Tailscale devices. It starts the local OpenCozy services and then enables Tailscale Serve. Use `private-wan:stop` to disable only the tailnet HTTPS origin, or `wan:stop` to disable the tailnet origin and stop the local OpenCozy services together.
 
 ## Durable Local Services
 
 For long-running phone access on macOS, OpenCozy includes optional launchd helpers:
 
 ```sh
+npm run lan:start
+npm run lan:stop
 npm run services:install
 npm run services:start
 ```
@@ -142,7 +172,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, checks, and pull request
 
 ## Security
 
-OpenCozy is designed for trusted local networks. See [SECURITY.md](SECURITY.md) before exposing it beyond your own machine or LAN.
+OpenCozy is designed for trusted local networks or enrolled devices on a private device network. See [SECURITY.md](SECURITY.md) before exposing it beyond your own machine or LAN.
 
 ## License
 

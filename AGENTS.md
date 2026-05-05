@@ -35,3 +35,9 @@ tmux new-session -d -s opencozy-backend-restart 'cd /Users/openclaw/Documents/pr
 ```
 
 After that, verify `/tmp/opencozy-backend-restart.log`, `curl -fsS http://127.0.0.1:8788/api/health`, `curl -fsS http://127.0.0.1:5175/`, and `./scripts/opencozy-services.sh status`. Do not issue a second restart just because the original session disconnected.
+
+## Private WAN setup
+
+For Tailscale-based Private WAN setup, follow [docs/private-wan-agent-setup.md](docs/private-wan-agent-setup.md). The key boundaries are: backend localhost-only, frontend as the single OpenCozy origin, explicit `OPENCOZY_ALLOWED_HOSTS`, HTTPS through Tailscale Serve, no Tailscale Funnel, and no direct backend exposure. OpenCozy Settings shows the current WAN Tunnel config and state once the backend has loaded the relevant `.env`.
+
+Use `npm run lan:start` for LAN-only access. Use `npm run wan:start` when the user wants OpenCozy available through both LAN and Tailscale; it starts local OpenCozy services and then enables Tailscale Serve. Use `npm run private-wan:stop` only when disabling the HTTPS tailnet origin while leaving LAN OpenCozy running. Use `npm run wan:stop` only when the user explicitly asks to stop WAN OpenCozy as a whole; it disables Serve and stops the local OpenCozy services, so the backend restart/stop permission rule applies.

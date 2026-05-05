@@ -104,6 +104,188 @@ describe("OpenCozy session WebSocket route", () => {
     expect(shouldReplaySessionHistory("/api/open-cozy-sessions/session-1/socket?replay=false")).toBe(false);
   });
 
+  it("enforces the configured host and origin allowlist for HTTP requests", async () => {
+    const fixture = makeTestCodexBin();
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      allowedHosts: ["opencozy.tailnet.test"]
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const allowedResponse = await server.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: {
+        host: "opencozy.tailnet.test",
+        origin: "https://opencozy.tailnet.test"
+      }
+    });
+    expect(allowedResponse.statusCode).toBe(200);
+
+    const localProxyResponse = await server.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: {
+        host: "127.0.0.1:8788",
+        origin: "https://opencozy.tailnet.test"
+      }
+    });
+    expect(localProxyResponse.statusCode).toBe(200);
+
+    const badHostResponse = await server.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: {
+        host: "evil.test",
+        origin: "https://opencozy.tailnet.test"
+      }
+    });
+    expect(badHostResponse.statusCode).toBe(403);
+
+    const badOriginResponse = await server.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: {
+        host: "opencozy.tailnet.test",
+        origin: "https://evil.test"
+      }
+    });
+    expect(badOriginResponse.statusCode).toBe(403);
+  });
+
+  it("enforces the configured host and origin allowlist for WebSocket upgrades", async () => {
+    const fixture = makeTestCodexBin();
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      allowedHosts: ["opencozy.tailnet.test"]
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const allowedHeaders = {
+      host: "opencozy.tailnet.test",
+      origin: "https://opencozy.tailnet.test"
+    };
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      headers: allowedHeaders,
+      payload: {
+        mode: "new",
+        name: "WAN Guard",
+        cwd: fixture.cwd
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+
+    const session = createResponse.json<{ id: string }>();
+    const ws = await server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, { headers: allowedHeaders });
+    ws.terminate();
+
+    await expect(
+      server.injectWS(`/api/open-cozy-sessions/${session.id}/socket`, {
+        headers: {
+          host: "evil.test",
+          origin: "https://evil.test"
+        }
+      })
+    ).rejects.toThrow("Unexpected server response: 403");
+
+    await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}`,
+      headers: allowedHeaders
+    });
+  });
+
+  it("reports WAN tunnel configuration and Tailscale state", async () => {
+    const fixture = makeTestCodexBin();
+    const tailscaleBin = path.join(fixture.cwd, "fake-tailscale.js");
+    writeFileSync(
+      tailscaleBin,
+      [
+        "#!/usr/bin/env node",
+        "const args = process.argv.slice(2).filter((arg) => !arg.startsWith('--socket='));",
+        "if (args[0] === 'status' && args[1] === '--json') {",
+        "  process.stdout.write(JSON.stringify({",
+        "    Version: '1.2.3',",
+        "    BackendState: 'Running',",
+        "    MagicDNSSuffix: 'tailnet.example.ts.net',",
+        "    Self: {",
+        "      HostName: 'jarvis-opencozy',",
+        "      DNSName: 'jarvis-opencozy.tailnet.example.ts.net.',",
+        "      Online: true,",
+        "      TailscaleIPs: ['100.72.10.3']",
+        "    }",
+        "  }));",
+        "  process.exit(0);",
+        "}",
+        "if (args[0] === 'serve' && args[1] === 'status') {",
+        "  process.stdout.write('https://jarvis-opencozy.tailnet.example.ts.net\\n|-- proxy http://127.0.0.1:5175\\n');",
+        "  process.exit(0);",
+        "}",
+        "process.stderr.write(`unexpected args: ${args.join(' ')}\\n`);",
+        "process.exit(2);"
+      ].join("\n")
+    );
+    chmodSync(tailscaleBin, 0o755);
+
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      allowedHosts: ["jarvis.local", "jarvis-opencozy.tailnet.example.ts.net"],
+      frontendPort: 5175,
+      tailscaleBin,
+      tailscaleSocket: "/tmp/opencozy-tailscaled.sock"
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/api/wan-tunnel"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      config: {
+        allowedHosts: ["jarvis.local", "jarvis-opencozy.tailnet.example.ts.net"],
+        backendHost: "127.0.0.1",
+        backendLocalOnly: true,
+        frontendPort: 5175,
+        serveTarget: "http://127.0.0.1:5175",
+        tailscaleSocket: "/tmp/opencozy-tailscaled.sock"
+      },
+      tailscale: {
+        backendState: "Running",
+        cliAvailable: true,
+        daemonReachable: true,
+        dnsName: "jarvis-opencozy.tailnet.example.ts.net",
+        httpsOrigin: "https://jarvis-opencozy.tailnet.example.ts.net",
+        ips: ["100.72.10.3"],
+        nodeName: "jarvis-opencozy",
+        serveConfigured: true,
+        tailnetSuffix: "tailnet.example.ts.net",
+        version: "1.2.3"
+      }
+    });
+  });
+
   it("attaches to a created session and sends initial status", async () => {
     const fixture = makeTestCodexBin();
     const server = buildServer({
