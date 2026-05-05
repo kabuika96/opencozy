@@ -68,9 +68,61 @@ _Avoid_: app overlay hack, custom terminal engine
 Per-device app settings that tune the Mobile Terminal Surface without changing Codex conversation state. The first preferences are iOS autocorrect and autocapitalization for the native input bridge, both enabled by default and independently disableable.
 _Avoid_: session settings, Codex settings
 
-**LAN App Shortcut**:
-A saved link to another app running on the Codex Host or the same LAN.
-_Avoid_: discovered app, deployment
+**Project Preview**:
+A per-session OpenCozy surface for viewing a Wired Preview from an Enrolled Device.
+_Avoid_: LAN app shortcut, deployment, public preview
+
+**Project Directory**:
+The user-confirmed directory on the Codex Host that contains the developer app for a Wired Preview.
+_Avoid_: inferred repo, global workspace
+
+**Project Search Brief**:
+A user-provided description of the project name or details used to find a Project Directory.
+_Avoid_: guessed path, global recency
+
+**Wired Preview**:
+A user-named backend-persisted preview configuration for a Project Directory, including the target frontend and its required local dependency services, that can be reused from any Enrolled Device.
+_Avoid_: device preview URL, tab-local preview
+
+**Preview Wiring Session**:
+A user-visible OpenCozy Session launched for a Project Directory to create or update a Wired Preview.
+_Avoid_: hidden agent work, deterministic project scanner
+
+**Preview Target**:
+The target frontend entry point for a Wired Preview.
+_Avoid_: exposed app port, arbitrary URL
+
+**Preview Dependency Service**:
+A local service the Preview Target needs in order to work correctly.
+_Avoid_: exposed backend port, public service
+
+**Preview Published Origin**:
+The private browser-facing origin an Enrolled Device opens to view a Wired Preview. It is backend-owned state on the Wired Preview and records provider, source, HTTPS port, local proxy port when applicable, published URL, status, and any failure message.
+_Avoid_: public URL, path shortcut
+
+**Preview Publisher**:
+The OpenCozy backend component that creates, updates, and removes Preview Published Origins for Wired Previews.
+_Avoid_: manual tunnel command, agent-owned tunnel
+
+**Local Preview Proxy**:
+A localhost-only OpenCozy proxy owned by the Preview Publisher that lets a Preview Published Origin stay root-mounted while forwarding to the developer app with local request headers.
+_Avoid_: path-mounted proxy, app config patch
+
+**Preview Manifest**:
+Structured preview wiring produced for user approval before OpenCozy persists or publishes a Wired Preview.
+_Avoid_: silent agent registration, free-form instructions
+
+**Preview Command**:
+A structured command hint needed to start or maintain part of a Wired Preview.
+_Avoid_: managed process, OpenCozy service
+
+**Preview State**:
+The current readiness of a Wired Preview and the likely next action needed from the user or Preview Wiring Session.
+_Avoid_: hidden health code, deployment status
+
+**Browser-Direct Preview Service**:
+A Preview Dependency Service that must be reachable directly by the Enrolled Device browser for the app to work.
+_Avoid_: accidental exposed backend, hidden dependency
 
 ## Relationships
 
@@ -99,7 +151,39 @@ _Avoid_: discovered app, deployment
 - A **Mobile Terminal Surface** controls an **OpenCozy Session** without replacing Codex's terminal UI.
 - A **Mobile Terminal Surface** may depend on the **Mobile Xterm Fork** rather than reaching into stock xterm private internals from app code.
 - **Mobile Terminal Preferences** belong to the device, not to an **OpenCozy Session** or **Codex Session**.
-- A **LAN App Shortcut** stores enough address information for the PWA to open one LAN app.
+- A **Project Preview** may attach an **OpenCozy Session** or **Session Tab** to one **Wired Preview**.
+- The active **Wired Preview** attachment belongs to the shared **OpenCozy Session**, not to device-local **Session Tab Preferences**.
+- Closing an **OpenCozy Session** or **Session Tab** should not detach, delete, or unpublish a **Wired Preview**; detach is an explicit action in preview settings.
+- A **Wired Preview** starts from a user-confirmed **Project Directory** and is stored by the OpenCozy backend, not in device-local browser storage.
+- **Wired Previews** are globally shared OpenCozy data: any **Enrolled Device** can search and attach to them, while **Session Tab Preferences** remain device-local.
+- A **Wired Preview** should have a user-facing name.
+- **Wired Preview** search should show all matching records, including stale or unpublished ones, with explanatory **Preview State** labels such as Ready, Needs start, Needs publish, Unreachable, or Manifest pending approval.
+- A **Preview Manifest** may propose a **Wired Preview** name, but the user should confirm or edit the name before approval creates reusable global preview data.
+- A **Preview Wiring Session** may start from a **Project Search Brief**, search the Codex Host for candidate project directories, and ask the user to confirm the intended **Project Directory** before creating or updating a **Wired Preview**.
+- After a **Project Directory** is confirmed, a **Preview Wiring Session** may inspect it and run project commands to identify or start a **Preview Target**, but the session must remain visible to the user and must not infer a project from unrelated machine-wide recency.
+- Preview wiring launch instructions must enter Codex as a process initial prompt argument that points to a local prompt file; OpenCozy should not queue or auto-type preview prompts through the WebSocket terminal input path after the PTY starts.
+- For Wired Preview updates and recovery, OpenCozy should start a new visible **Preview Wiring Session** and reuse the backend **Wired Preview** data as prompt-file context, rather than injecting instructions into an already-running PTY.
+- A **Wired Preview** may store the **OpenCozy Session** id of its most recent **Preview Wiring Session** so update and recovery actions can return to visible wiring context instead of starting hidden work.
+- A **Preview Wiring Session** may submit a **Preview Manifest** directly to the local OpenCozy backend, but OpenCozy should persist or publish it only after user approval.
+- **Preview Manifest** approval is required for material changes to a **Wired Preview**, including the Preview Target, dependency services, browser-direct services, commands, and published origins; unchanged resubmissions may be treated as already approved.
+- **Preview Commands** may be stored as metadata on a **Wired Preview**, but OpenCozy should not supervise arbitrary app processes in the first Project Preview implementation.
+- **Preview State** should explain likely recovery actions, such as starting the preview with stored **Preview Commands**, publishing the approved target, or returning to the **Preview Wiring Session**.
+- A start/recovery action for **Preview Commands** should open a visible **Preview Wiring Session** with the commands ready as context, rather than running commands invisibly from the Project Preview UI.
+- A **Project Directory** may have multiple **Wired Previews**.
+- A **Wired Preview** has one **Preview Target**, zero or more **Preview Dependency Services**, and may have one **Preview Published Origin**.
+- By default, only the **Preview Target** gets a **Preview Published Origin**; **Preview Dependency Services** should stay local to the Codex Host behind the app's normal server-side or proxy paths.
+- A **Preview Dependency Service** may become a **Browser-Direct Preview Service** only when the app architecture requires the Enrolled Device browser to call it directly.
+- Each **Browser-Direct Preview Service** should receive its own port-based private HTTPS **Preview Published Origin** rather than being path-mounted under the frontend origin.
+- Browser-direct dependency publishing is explicit and limited to services marked `browserDirect`; ordinary **Preview Dependency Services** remain host-local and should not be published by bulk dependency actions.
+- The **Preview Publisher** owns durable publish and unpublish state for **Preview Published Origins**; a **Preview Wiring Session** may identify what to publish, but it should not be the durable owner of tunnel commands.
+- The first **Preview Publisher** implementation may use Tailscale Serve for private HTTPS origins, while the **Vendor-Neutral LAN Path** remains available through manually reachable preview URLs until a LAN publisher is explicitly designed.
+- A **Preview Target** should stay inside the trusted private boundary and should not require exposing arbitrary developer app ports directly to the public internet.
+- The first **Preview Published Origin** should be private, HTTPS, and port-based so the developer app owns `/`; path-mounted previews are rejected because they can conflict with app routes, assets, auth callbacks, cookies, redirects, and development server hot reload paths.
+- The first Tailscale Serve **Preview Publisher** publishes the **Preview Target** through `tailscale serve --bg --https=<published-port> http://127.0.0.1:<local-proxy-port>/`, where the **Local Preview Proxy** forwards to the target origin with local request headers. It unpublishes explicitly with `tailscale serve --https=<published-port> off`.
+- **Preview Published Origin** state distinguishes the browser-facing HTTPS port from the **Local Preview Proxy** port. If a local proxy port is occupied, OpenCozy should allocate another port from the configured proxy range and update the Tailscale Serve target rather than requiring developer app configuration changes.
+- Publishing failures, including missing Tailscale daemon access, missing Tailscale DNS, offline node state, or unavailable HTTPS Serve certificates, should be reported as **Preview Published Origin** failure state rather than hidden terminal output.
+- Opening **Project Preview** should show the attached **Wired Preview** first when the active **OpenCozy Session** has one; otherwise it should show searchable **Wired Previews** and a wire-new action together.
+- The wire-new action should also remain available when a **Wired Preview** search has no results.
 
 ## Interface direction
 
@@ -117,3 +201,4 @@ The concrete UX guide lives in [docs/ux-guide.md](docs/ux-guide.md). New fronten
 - "session" can mean **OpenCozy Session** or **Codex Session**. OpenCozy owns active PTY processes; Codex owns conversation history.
 - "terminal" does not mean a general shell. OpenCozy starts Codex commands only.
 - "fork" means a small, maintained xterm-derived package with documented mobile patches, not a rewrite of terminal emulation.
+- "preview" means **Project Preview** for a developer app tied to a **Wired Preview**, not a deployment or public sharing feature.

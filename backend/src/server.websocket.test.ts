@@ -1,4 +1,5 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -74,6 +75,47 @@ function writeCodexRollout(dir: string, fileName: string, userMessage: string): 
     })}\n`
   );
   return rolloutPath;
+}
+
+function listen(server: ReturnType<typeof createServer>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(0, "127.0.0.1");
+  });
+}
+
+function requestText(port: number, pathValue: string, headers: Record<string, string>): Promise<{ statusCode: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({
+      hostname: "127.0.0.1",
+      port,
+      path: pathValue,
+      headers
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      response.on("end", () => {
+        resolve({
+          statusCode: response.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString("utf8")
+        });
+      });
+    });
+    request.on("error", reject);
+    request.end();
+  });
 }
 
 async function waitForSessionExit(server: ReturnType<typeof buildServer>, id: string, deviceId: string): Promise<void> {
@@ -157,6 +199,719 @@ describe("OpenCozy session WebSocket route", () => {
       }
     });
     expect(badOriginResponse.statusCode).toBe(403);
+  });
+
+  it("stores Wired Previews and attaches one to a shared OpenCozy session", async () => {
+    const fixture = makeTestCodexBin();
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createPreviewResponse = await server.inject({
+      method: "POST",
+      url: "/api/wired-previews",
+      payload: {
+        name: "Fixture App",
+        projectDirectory: fixture.cwd,
+        target: { name: "App", url: "localhost:5173" },
+        dependencyServices: [
+          { name: "API", url: "http://127.0.0.1:3000", browserDirect: true }
+        ],
+        commands: [
+          { label: "Start app", cwd: fixture.cwd, command: "npm run dev" }
+        ]
+      }
+    });
+    expect(createPreviewResponse.statusCode).toBe(201);
+    const preview = createPreviewResponse.json<{
+      id: string;
+      target: { url: string };
+      dependencyServices: Array<{ name: string; browserDirect: boolean }>;
+      commands: Array<{ label: string; command: string }>;
+    }>();
+    expect(preview.target.url).toBe("http://localhost:5173/");
+    expect(preview.dependencyServices).toEqual([{ name: "API", url: "http://127.0.0.1:3000/", browserDirect: true }]);
+    expect(preview.commands).toEqual([{ label: "Start app", cwd: fixture.cwd, command: "npm run dev" }]);
+
+    const searchResponse = await server.inject({
+      method: "GET",
+      url: "/api/wired-previews?search=fixture"
+    });
+    expect(searchResponse.json<Array<{ id: string }>>()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: preview.id })
+    ]));
+
+    const getPreviewResponse = await server.inject({
+      method: "GET",
+      url: `/api/wired-previews/${preview.id}`
+    });
+    expect(getPreviewResponse.statusCode).toBe(200);
+    expect(getPreviewResponse.json<{ id: string; name: string }>()).toMatchObject({
+      id: preview.id,
+      name: "Fixture App"
+    });
+
+    const createSessionResponse = await server.inject({
+      method: "POST",
+      url: "/api/open-cozy-sessions",
+      payload: {
+        mode: "new",
+        cwd: fixture.cwd,
+        deviceId: "device-1"
+      }
+    });
+    expect(createSessionResponse.statusCode).toBe(201);
+    const session = createSessionResponse.json<{ id: string; wiredPreviewId: string | null }>();
+    expect(session.wiredPreviewId).toBeNull();
+
+    const attachResponse = await server.inject({
+      method: "PUT",
+      url: `/api/open-cozy-sessions/${session.id}/wired-preview`,
+      payload: { wiredPreviewId: preview.id }
+    });
+    expect(attachResponse.statusCode).toBe(200);
+    expect(attachResponse.json<{ wiredPreviewId: string }>()).toMatchObject({ wiredPreviewId: preview.id });
+
+    const crossDeviceListResponse = await server.inject({
+      method: "GET",
+      url: `/api/open-cozy-sessions?deviceId=device-2&tabId=${session.id}`
+    });
+    expect(crossDeviceListResponse.json<Array<{ id: string; wiredPreviewId: string | null }>>()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: session.id,
+        wiredPreviewId: preview.id
+      })
+    ]));
+
+    const renameResponse = await server.inject({
+      method: "PUT",
+      url: `/api/wired-previews/${preview.id}`,
+      payload: {
+        name: "Renamed Fixture App",
+        projectDirectory: fixture.cwd,
+        target: { name: "App", url: "http://localhost:5173/" },
+        dependencyServices: preview.dependencyServices,
+        commands: preview.commands
+      }
+    });
+    expect(renameResponse.statusCode).toBe(200);
+    expect(renameResponse.json<{ name: string }>()).toMatchObject({ name: "Renamed Fixture App" });
+
+    const detachResponse = await server.inject({
+      method: "DELETE",
+      url: `/api/open-cozy-sessions/${session.id}/wired-preview`
+    });
+    expect(detachResponse.statusCode).toBe(200);
+    expect(detachResponse.json<{ wiredPreviewId: string | null }>()).toMatchObject({ wiredPreviewId: null });
+
+    await server.inject({
+      method: "PUT",
+      url: `/api/open-cozy-sessions/${session.id}/wired-preview`,
+      payload: { wiredPreviewId: preview.id }
+    });
+
+    const deleteResponse = await server.inject({
+      method: "DELETE",
+      url: `/api/wired-previews/${preview.id}`
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+
+    const detachedAfterDeleteResponse = await server.inject({
+      method: "GET",
+      url: `/api/open-cozy-sessions?deviceId=device-2&tabId=${session.id}`
+    });
+    expect(detachedAfterDeleteResponse.json<Array<{ id: string; wiredPreviewId: string | null }>>()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: session.id,
+        wiredPreviewId: null
+      })
+    ]));
+  });
+
+  it("stores Preview Manifests pending approval and reuses unchanged submissions", async () => {
+    const fixture = makeTestCodexBin();
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const manifestPayload = {
+      name: "Fixture App",
+      projectDirectory: fixture.cwd,
+      target: { name: "App", url: "localhost:5173" },
+      dependencyServices: [
+        { name: "API", url: "http://127.0.0.1:3000", browserDirect: true }
+      ],
+      commands: [
+        { label: "Start app", cwd: fixture.cwd, command: "npm run dev" }
+      ],
+      requestedPublishedOrigins: [
+        { name: "App HTTPS", url: "https://fixture-app.tailnet.example.ts.net/" }
+      ]
+    };
+
+    const invalidResponse = await server.inject({
+      method: "POST",
+      url: "/api/preview-manifests",
+      payload: {
+        ...manifestPayload,
+        extra: true
+      }
+    });
+    expect(invalidResponse.statusCode).toBe(400);
+    expect(invalidResponse.json<{ error: string }>().error).toBe("manifest.extra is not allowed");
+
+    const submitResponse = await server.inject({
+      method: "POST",
+      url: "/api/preview-manifests",
+      payload: manifestPayload
+    });
+    expect(submitResponse.statusCode).toBe(201);
+    const pendingManifest = submitResponse.json<{
+      id: string;
+      status: string;
+      approvedWiredPreviewId: string | null;
+      target: { url: string };
+      dependencyServices: Array<{ url: string; browserDirect: boolean }>;
+      requestedPublishedOrigins: Array<{ name: string; url: string }>;
+    }>();
+    expect(pendingManifest).toMatchObject({
+      id: expect.any(String),
+      status: "pending",
+      approvedWiredPreviewId: null,
+      target: { url: "http://localhost:5173/" },
+      dependencyServices: [{ url: "http://127.0.0.1:3000/", browserDirect: true }],
+      requestedPublishedOrigins: [{ name: "App HTTPS", url: "https://fixture-app.tailnet.example.ts.net/" }]
+    });
+
+    const pendingListResponse = await server.inject({
+      method: "GET",
+      url: "/api/preview-manifests?status=pending"
+    });
+    expect(pendingListResponse.json<Array<{ id: string }>>()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: pendingManifest.id })
+    ]));
+
+    const approvalValidationResponse = await server.inject({
+      method: "PUT",
+      url: `/api/preview-manifests/${pendingManifest.id}/approve`,
+      payload: {}
+    });
+    expect(approvalValidationResponse.statusCode).toBe(400);
+
+    const approvalResponse = await server.inject({
+      method: "PUT",
+      url: `/api/preview-manifests/${pendingManifest.id}/approve`,
+      payload: { name: "Confirmed Fixture App" }
+    });
+    expect(approvalResponse.statusCode).toBe(200);
+    const approval = approvalResponse.json<{
+      manifest: { status: string; approvedWiredPreviewId: string };
+      wiredPreview: {
+        id: string;
+        name: string;
+        target: { url: string };
+        requestedPublishedOrigins: Array<{ name: string; url: string }>;
+      };
+    }>();
+    expect(approval.manifest).toMatchObject({
+      status: "approved",
+      approvedWiredPreviewId: approval.wiredPreview.id
+    });
+    expect(approval.wiredPreview).toMatchObject({
+      name: "Confirmed Fixture App",
+      target: { url: "http://localhost:5173/" },
+      requestedPublishedOrigins: [{ name: "App HTTPS", url: "https://fixture-app.tailnet.example.ts.net/" }]
+    });
+
+    const unchangedResponse = await server.inject({
+      method: "POST",
+      url: "/api/preview-manifests",
+      payload: manifestPayload
+    });
+    expect(unchangedResponse.statusCode).toBe(200);
+    expect(unchangedResponse.json<{ status: string; approvedWiredPreviewId: string }>()).toMatchObject({
+      status: "approved",
+      approvedWiredPreviewId: approval.wiredPreview.id
+    });
+
+    const unchangedExistingPreviewResponse = await server.inject({
+      method: "POST",
+      url: "/api/preview-manifests",
+      payload: {
+        ...manifestPayload,
+        wiredPreviewId: approval.wiredPreview.id
+      }
+    });
+    expect(unchangedExistingPreviewResponse.statusCode).toBe(200);
+    expect(unchangedExistingPreviewResponse.json<{ status: string; approvedWiredPreviewId: string }>()).toMatchObject({
+      status: "approved",
+      approvedWiredPreviewId: approval.wiredPreview.id
+    });
+
+    const changedResponse = await server.inject({
+      method: "POST",
+      url: "/api/preview-manifests",
+      payload: {
+        ...manifestPayload,
+        wiredPreviewId: approval.wiredPreview.id,
+        target: { name: "App", url: "localhost:5174" }
+      }
+    });
+    expect(changedResponse.statusCode).toBe(201);
+    expect(changedResponse.json<{ status: string; approvedWiredPreviewId: string | null; target: { url: string } }>()).toMatchObject({
+      status: "pending",
+      approvedWiredPreviewId: null,
+      target: { url: "http://localhost:5174/" }
+    });
+
+    const previewsResponse = await server.inject({
+      method: "GET",
+      url: "/api/wired-previews"
+    });
+    expect(previewsResponse.json<Array<{ id: string; target: { url: string } }>>()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: approval.wiredPreview.id,
+        target: expect.objectContaining({ url: "http://localhost:5173/" })
+      })
+    ]));
+  });
+
+  it("launches visible Preview Wiring Sessions with process initial prompts", async () => {
+    const fixture = makeTestCodexBin([
+      "process.stdout.write('fake codex ready\\n');",
+      "process.stdin.on('data', () => {});",
+      "process.stdin.resume();"
+    ]);
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const invalidResponse = await server.inject({
+      method: "POST",
+      url: "/api/preview-wiring-sessions",
+      payload: {}
+    });
+    expect(invalidResponse.statusCode).toBe(400);
+
+    const longProjectBrief = `mobile app ${"details ".repeat(1_000)}`;
+    const freshResponse = await server.inject({
+      method: "POST",
+      url: "/api/preview-wiring-sessions",
+      payload: {
+        deviceId: "device-1",
+        projectSearchBrief: longProjectBrief
+      }
+    });
+    expect(freshResponse.statusCode).toBe(201);
+    const freshLaunch = freshResponse.json<{
+      session: { id: string; name: string; deviceId: string | null; args: string[] };
+      prompt: string;
+      reused: boolean;
+      wiredPreview: null;
+    }>();
+    expect(freshLaunch).toMatchObject({
+      session: {
+        id: expect.any(String),
+        name: "Wire Preview",
+        deviceId: "device-1"
+      },
+      reused: false,
+      wiredPreview: null
+    });
+    expect(freshLaunch.prompt.length).toBeLessThan(600);
+    expect(freshLaunch.prompt).not.toContain("\n");
+    expect(freshLaunch.prompt).toContain("/api/preview-manifests");
+    expect(freshLaunch.prompt).toContain(`preview-wiring-sessions/${freshLaunch.session.id}.md`);
+    expect(freshLaunch.session.args.at(-1)).toBe(freshLaunch.prompt);
+    const freshPromptFilePath = new RegExp(`"([^"]*preview-wiring-sessions/${freshLaunch.session.id}\\.md)"`).exec(freshLaunch.prompt)?.[1];
+    expect(freshPromptFilePath).toBeTruthy();
+    const freshPromptFile = readFileSync(freshPromptFilePath ?? "", "utf8");
+    expect(freshPromptFile).toContain(`Project Search Brief: ${longProjectBrief.trim()}`);
+    expect(freshPromptFile).toContain(`"wiringSessionId": "${freshLaunch.session.id}"`);
+    expect(freshPromptFile).toContain("ask them to confirm");
+    expect(freshPromptFile).toContain("include it in requestedPublishedOrigins");
+
+    const deviceSessionsResponse = await server.inject({
+      method: "GET",
+      url: "/api/open-cozy-sessions?deviceId=device-1"
+    });
+    expect(deviceSessionsResponse.json<Array<{ id: string }>>()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: freshLaunch.session.id })
+    ]));
+
+    const createPreviewResponse = await server.inject({
+      method: "POST",
+      url: "/api/wired-previews",
+      payload: {
+        name: "Fixture App",
+        projectDirectory: fixture.cwd,
+        target: { name: "App", url: "localhost:5173" },
+        dependencyServices: [],
+        commands: [
+          { label: "Start app", cwd: fixture.cwd, command: "npm run dev" }
+        ],
+        requestedPublishedOrigins: [
+          { name: "App", url: "http://127.0.0.1:5173/" }
+        ]
+      }
+    });
+    expect(createPreviewResponse.statusCode).toBe(201);
+    const preview = createPreviewResponse.json<{ id: string }>();
+
+    const updateLaunchResponse = await server.inject({
+      method: "POST",
+      url: "/api/preview-wiring-sessions",
+      payload: {
+        deviceId: "device-1",
+        projectSearchBrief: "fixture app update",
+        wiredPreviewId: preview.id
+      }
+    });
+    expect(updateLaunchResponse.statusCode).toBe(201);
+    const updateLaunch = updateLaunchResponse.json<{
+      session: { id: string; cwd: string; name: string; args: string[] };
+      prompt: string;
+      reused: boolean;
+      wiredPreview: { id: string; wiringSessionId: string | null };
+    }>();
+    expect(updateLaunch).toMatchObject({
+      session: {
+        id: expect.any(String),
+        cwd: fixture.cwd,
+        name: "Wire Fixture App"
+      },
+      reused: false,
+      wiredPreview: {
+        id: preview.id,
+        wiringSessionId: updateLaunch.session.id
+      }
+    });
+    expect(updateLaunch.prompt.length).toBeLessThan(600);
+    expect(updateLaunch.prompt).not.toContain("\n");
+    expect(updateLaunch.prompt).toContain(`preview-wiring-sessions/${updateLaunch.session.id}.md`);
+    expect(updateLaunch.session.args.at(-1)).toBe(updateLaunch.prompt);
+    const updatePromptFilePath = new RegExp(`"([^"]*preview-wiring-sessions/${updateLaunch.session.id}\\.md)"`).exec(updateLaunch.prompt)?.[1];
+    expect(updatePromptFilePath).toBeTruthy();
+    const updatePromptFile = readFileSync(updatePromptFilePath ?? "", "utf8");
+    expect(updatePromptFile).toContain(`Existing Wired Preview: Fixture App (${preview.id})`);
+    expect(updatePromptFile).toContain(`"wiredPreviewId": "${preview.id}"`);
+    expect(updatePromptFile).toContain("Stored Preview Commands:");
+    expect(updatePromptFile).toContain("command: npm run dev");
+    expect(updatePromptFile).toContain("ask before running anything");
+
+    const recoveryLaunchResponse = await server.inject({
+      method: "POST",
+      url: "/api/preview-wiring-sessions",
+      payload: {
+        deviceId: "device-1",
+        projectSearchBrief: "fixture app update",
+        wiredPreviewId: preview.id
+      }
+    });
+    expect(recoveryLaunchResponse.statusCode).toBe(201);
+    const recoveryLaunch = recoveryLaunchResponse.json<{
+      session: { id: string; cwd: string; name: string; args: string[] };
+      prompt: string;
+      reused: boolean;
+      wiredPreview: { id: string; wiringSessionId: string | null };
+    }>();
+    expect(recoveryLaunch.session.id).not.toBe(updateLaunch.session.id);
+    expect(recoveryLaunch).toMatchObject({
+      session: {
+        cwd: fixture.cwd,
+        name: "Wire Fixture App"
+      },
+      reused: false,
+      wiredPreview: {
+        id: preview.id,
+        wiringSessionId: recoveryLaunch.session.id
+      }
+    });
+    expect(recoveryLaunch.prompt).not.toContain("\n");
+    expect(recoveryLaunch.prompt).toContain(`preview-wiring-sessions/${recoveryLaunch.session.id}.md`);
+    expect(recoveryLaunch.session.args.at(-1)).toBe(recoveryLaunch.prompt);
+  });
+
+  it("publishes and unpublishes a Wired Preview target through Tailscale Serve", async () => {
+    const fixture = makeTestCodexBin();
+    const tailscaleBin = path.join(fixture.cwd, "fake-tailscale.js");
+    const commandLog = path.join(fixture.cwd, "tailscale-commands.jsonl");
+    writeFileSync(
+      tailscaleBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2).filter((arg) => !arg.startsWith('--socket='));",
+        `fs.appendFileSync(${JSON.stringify(commandLog)}, JSON.stringify(args) + "\\n");`,
+        "if (args[0] === 'status' && args[1] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ Self: { DNSName: 'jarvis.tailnet.test.', Online: true } }));",
+        "  process.exit(0);",
+        "}",
+        "if (args[0] === 'serve' && args[1] === '--bg' && args[2] === '--https=8443' && /^http:\\/\\/127\\.0\\.0\\.1:\\d+\\/$/.test(args[3])) {",
+        "  process.exit(0);",
+        "}",
+        "if (args[0] === 'serve' && args[1] === '--bg' && args[2] === '--https=8444' && /^http:\\/\\/127\\.0\\.0\\.1:\\d+\\/$/.test(args[3])) {",
+        "  process.exit(0);",
+        "}",
+        "if (args[0] === 'serve' && args[1] === '--https=8443' && args[2] === 'off') {",
+        "  process.exit(0);",
+        "}",
+        "process.stderr.write(`unexpected args: ${JSON.stringify(args)}`);",
+        "process.exit(2);"
+      ].join("\n")
+    );
+    chmodSync(tailscaleBin, 0o755);
+
+    const server = buildServer({
+      host: "127.0.0.1",
+      port: 0,
+      dbPath: fixture.dbPath,
+      codexBin: fixture.bin,
+      defaultCodexCwd: fixture.cwd,
+      tailscaleBin,
+      previewPublishPortStart: 8443,
+      previewPublishPortEnd: 8444,
+      previewProxyPortStart: 0,
+      previewProxyPortEnd: 0
+    });
+    servers.push(server);
+
+    await server.ready();
+
+    const createPreviewResponse = await server.inject({
+      method: "POST",
+      url: "/api/wired-previews",
+      payload: {
+        name: "Fixture App",
+        projectDirectory: fixture.cwd,
+        target: { name: "App", url: "http://127.0.0.1:5173/path" },
+        dependencyServices: [
+          { name: "API", url: "http://127.0.0.1:3000/api", browserDirect: true },
+          { name: "Database", url: "http://127.0.0.1:5432", browserDirect: false }
+        ],
+        commands: [],
+        requestedPublishedOrigins: []
+      }
+    });
+    expect(createPreviewResponse.statusCode).toBe(201);
+    const preview = createPreviewResponse.json<{ id: string }>();
+
+    const emptyOriginsResponse = await server.inject({
+      method: "GET",
+      url: `/api/wired-previews/${preview.id}/published-origins`
+    });
+    expect(emptyOriginsResponse.statusCode).toBe(200);
+    expect(emptyOriginsResponse.json()).toEqual([]);
+
+    const publishResponse = await server.inject({
+      method: "POST",
+      url: `/api/wired-previews/${preview.id}/published-origins`,
+      payload: { source: "target" }
+    });
+    expect(publishResponse.statusCode).toBe(201);
+    const published = publishResponse.json<{
+      origin: { id: string; sourceUrl: string; publishedUrl: string; httpsPort: number; status: string };
+      wiredPreview: { publishedOrigins: Array<{ id: string; status: string }> };
+    }>();
+    expect(published).toMatchObject({
+      origin: {
+        sourceUrl: "http://127.0.0.1:5173/",
+        publishedUrl: "https://jarvis.tailnet.test:8443/",
+        httpsPort: 8443,
+        status: "published"
+      },
+      origins: [
+        expect.objectContaining({
+          sourceUrl: "http://127.0.0.1:5173/",
+          publishedUrl: "https://jarvis.tailnet.test:8443/"
+        })
+      ],
+      wiredPreview: {
+        publishedOrigins: [
+          expect.objectContaining({ status: "published" })
+        ]
+      }
+    });
+
+    const dependencyPublishResponse = await server.inject({
+      method: "POST",
+      url: `/api/wired-previews/${preview.id}/published-origins`,
+      payload: { source: "browserDirectDependencyServices" }
+    });
+    expect(dependencyPublishResponse.statusCode).toBe(201);
+    expect(dependencyPublishResponse.json<{
+      origins: Array<{ source: string; dependencyServiceName: string | null; sourceUrl: string; publishedUrl: string; httpsPort: number }>;
+    }>().origins).toEqual([
+      expect.objectContaining({
+        source: "dependency-service",
+        dependencyServiceName: "API",
+        sourceUrl: "http://127.0.0.1:3000/",
+        publishedUrl: "https://jarvis.tailnet.test:8444/",
+        httpsPort: 8444
+      })
+    ]);
+
+    const hostLocalPublishResponse = await server.inject({
+      method: "POST",
+      url: `/api/wired-previews/${preview.id}/published-origins`,
+      payload: { source: "dependencyService", dependencyServiceIndex: 1 }
+    });
+    expect(hostLocalPublishResponse.statusCode).toBe(400);
+    expect(hostLocalPublishResponse.json<{ error: string }>().error).toBe("Dependency Service is host-local; mark it browserDirect before publishing");
+
+    const originsResponse = await server.inject({
+      method: "GET",
+      url: `/api/wired-previews/${preview.id}/published-origins`
+    });
+    expect(originsResponse.json<Array<{ id: string; source: string; status: string }>>()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: published.origin.id, source: "target", status: "published" }),
+      expect.objectContaining({ source: "dependency-service", status: "published" })
+    ]));
+
+    const unpublishResponse = await server.inject({
+      method: "DELETE",
+      url: `/api/wired-previews/${preview.id}/published-origins/${published.origin.id}`
+    });
+    expect(unpublishResponse.statusCode).toBe(200);
+    expect(unpublishResponse.json<{ origin: { status: string } }>().origin.status).toBe("unpublished");
+
+    const commands = readFileSync(commandLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string[]);
+    expect(commands).toEqual([
+      ["status", "--json"],
+      ["serve", "--bg", "--https=8443", expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/$/)],
+      ["status", "--json"],
+      ["serve", "--bg", "--https=8444", expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/$/)],
+      ["serve", "--https=8443", "off"]
+    ]);
+  });
+
+  it("proxies published Preview Origin requests with the target Host header", async () => {
+    const fixture = makeTestCodexBin();
+    const targetServer = createServer((request, response) => {
+      const expectedHost = `127.0.0.1:${(targetServer.address() as { port: number }).port}`;
+      if (request.headers.host !== expectedHost) {
+        response.statusCode = 403;
+        response.end(`Blocked request. This host (${request.headers.host}) is not allowed.`);
+        return;
+      }
+
+      response.setHeader("content-type", "text/plain");
+      response.end(`ok ${request.url}`);
+    });
+    await listen(targetServer);
+
+    try {
+      const targetAddress = targetServer.address();
+      if (!targetAddress || typeof targetAddress === "string") {
+        throw new Error("Target server did not bind to a TCP port");
+      }
+
+      const tailscaleBin = path.join(fixture.cwd, "fake-tailscale.js");
+      writeFileSync(
+        tailscaleBin,
+        [
+          "#!/usr/bin/env node",
+          "const args = process.argv.slice(2).filter((arg) => !arg.startsWith('--socket='));",
+          "if (args[0] === 'status' && args[1] === '--json') {",
+          "  process.stdout.write(JSON.stringify({ Self: { DNSName: 'jarvis.tailnet.test.', Online: true } }));",
+          "  process.exit(0);",
+          "}",
+          "if (args[0] === 'serve' && args[1] === '--bg' && args[2] === '--https=8443' && /^http:\\/\\/127\\.0\\.0\\.1:\\d+\\/$/.test(args[3])) {",
+          "  process.exit(0);",
+          "}",
+          "process.stderr.write(`unexpected args: ${JSON.stringify(args)}`);",
+          "process.exit(2);"
+        ].join("\n")
+      );
+      chmodSync(tailscaleBin, 0o755);
+
+      const server = buildServer({
+        host: "127.0.0.1",
+        port: 8788,
+        dbPath: fixture.dbPath,
+        codexBin: fixture.bin,
+        defaultCodexCwd: fixture.cwd,
+        tailscaleBin,
+        allowedHosts: ["jarvis.tailnet.test"],
+        previewPublishPortStart: 8443,
+        previewPublishPortEnd: 8443,
+        previewProxyPortStart: 0,
+        previewProxyPortEnd: 0
+      });
+      servers.push(server);
+
+      await server.ready();
+
+      const createPreviewResponse = await server.inject({
+        method: "POST",
+        url: "/api/wired-previews",
+        payload: {
+          name: "Vite App",
+          projectDirectory: fixture.cwd,
+          target: { name: "App", url: `http://127.0.0.1:${targetAddress.port}/` },
+          dependencyServices: [],
+          commands: [],
+          requestedPublishedOrigins: []
+        }
+      });
+      expect(createPreviewResponse.statusCode).toBe(201);
+      const preview = createPreviewResponse.json<{ id: string }>();
+
+      const publishResponse = await server.inject({
+        method: "POST",
+        url: `/api/wired-previews/${preview.id}/published-origins`,
+        payload: { source: "target" }
+      });
+      expect(publishResponse.statusCode).toBe(201);
+      const published = publishResponse.json<{ origin: { id: string; publishedUrl: string; localProxyPort: number } }>();
+      expect(published.origin.publishedUrl).toBe("https://jarvis.tailnet.test:8443/");
+
+      const proxyResponse = await requestText(
+        published.origin.localProxyPort,
+        "/@vite/client?x=1",
+        {
+          host: "jarvis.tailnet.test:8443",
+          origin: "https://jarvis.tailnet.test:8443"
+        }
+      );
+
+      expect(proxyResponse.statusCode).toBe(200);
+      expect(proxyResponse.body).toBe("ok /@vite/client?x=1");
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        targetServer.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    }
   });
 
   it("enforces the configured host and origin allowlist for WebSocket upgrades", async () => {

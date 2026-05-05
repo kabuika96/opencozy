@@ -31,6 +31,7 @@ function session(id: string): OpenCozySessionSummary {
   return {
     args: [],
     codexThreadId: null,
+    wiredPreviewId: null,
     command: "codex",
     createdAt: "2026-05-04T00:00:00.000Z",
     cwd: "/tmp",

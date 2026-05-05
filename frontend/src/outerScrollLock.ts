@@ -2,12 +2,15 @@ type TouchRoot = Pick<HTMLElement, "addEventListener" | "removeEventListener">;
 
 type ScrollCandidate = {
   clientHeight?: number;
+  clientWidth?: number;
   getAttribute?: (name: string) => string | null;
   isContentEditable?: boolean;
   matches?: (selector: string) => boolean;
   tagName?: string;
   type?: string;
   scrollHeight?: number;
+  scrollLeft?: number;
+  scrollWidth?: number;
   scrollTop?: number;
 };
 
@@ -25,13 +28,32 @@ const NON_TEXT_INPUT_TYPES = new Set([
   "submit"
 ]);
 
-function touchY(event: TouchEvent): number | null {
+type TouchPoint = {
+  x: number;
+  y: number;
+};
+
+type HorizontalScrollableCandidate = ScrollCandidate & {
+  clientWidth: number;
+  scrollLeft: number;
+  scrollWidth: number;
+};
+
+type VerticalScrollableCandidate = ScrollCandidate & {
+  clientHeight: number;
+  scrollHeight: number;
+  scrollTop: number;
+};
+
+function touchPoint(event: TouchEvent): TouchPoint | null {
   if (event.touches.length !== 1) {
     return null;
   }
 
   const touch = event.touches[0];
-  return touch?.clientY ?? touch?.pageY ?? null;
+  const x = touch?.clientX ?? touch?.pageX ?? null;
+  const y = touch?.clientY ?? touch?.pageY ?? null;
+  return x === null || y === null ? null : { x, y };
 }
 
 function preventOuterScroll(event: TouchEvent): void {
@@ -66,19 +88,33 @@ function hasNativeTextEditor(event: TouchEvent): boolean {
   return eventPath(event).some(isNativeTextEditingCandidate);
 }
 
-function isScrollableCandidate(candidate: ScrollCandidate): candidate is Required<ScrollCandidate> {
+function matchesScrollableSelector(candidate: ScrollCandidate): boolean {
+  return candidate.matches?.(SCROLLABLE_SELECTOR) === true;
+}
+
+function isHorizontalScrollableCandidate(candidate: ScrollCandidate): candidate is HorizontalScrollableCandidate {
   return (
-    typeof candidate.clientHeight === "number" &&
-    typeof candidate.scrollHeight === "number" &&
-    typeof candidate.scrollTop === "number" &&
-    candidate.scrollHeight > candidate.clientHeight &&
-    candidate.matches?.(SCROLLABLE_SELECTOR) === true
+    matchesScrollableSelector(candidate) &&
+    typeof candidate.clientWidth === "number" &&
+    typeof candidate.scrollLeft === "number" &&
+    typeof candidate.scrollWidth === "number" &&
+    candidate.scrollWidth > candidate.clientWidth
   );
 }
 
-function findScrollable(event: TouchEvent): Required<ScrollCandidate> | null {
+function isVerticalScrollableCandidate(candidate: ScrollCandidate): candidate is VerticalScrollableCandidate {
+  return (
+    matchesScrollableSelector(candidate) &&
+    typeof candidate.clientHeight === "number" &&
+    typeof candidate.scrollHeight === "number" &&
+    typeof candidate.scrollTop === "number" &&
+    candidate.scrollHeight > candidate.clientHeight
+  );
+}
+
+function findHorizontalScrollable(event: TouchEvent): HorizontalScrollableCandidate | null {
   for (const candidate of eventPath(event)) {
-    if (isScrollableCandidate(candidate)) {
+    if (isHorizontalScrollableCandidate(candidate)) {
       return candidate;
     }
   }
@@ -86,7 +122,29 @@ function findScrollable(event: TouchEvent): Required<ScrollCandidate> | null {
   return null;
 }
 
-function canScroll(scrollable: Required<ScrollCandidate>, deltaY: number): boolean {
+function findVerticalScrollable(event: TouchEvent): VerticalScrollableCandidate | null {
+  for (const candidate of eventPath(event)) {
+    if (isVerticalScrollableCandidate(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function canScrollHorizontal(scrollable: HorizontalScrollableCandidate, deltaX: number): boolean {
+  if (deltaX > 0) {
+    return scrollable.scrollLeft + scrollable.clientWidth < scrollable.scrollWidth;
+  }
+
+  if (deltaX < 0) {
+    return scrollable.scrollLeft > 0;
+  }
+
+  return true;
+}
+
+function canScrollVertical(scrollable: VerticalScrollableCandidate, deltaY: number): boolean {
   if (deltaY > 0) {
     return scrollable.scrollTop + scrollable.clientHeight < scrollable.scrollHeight;
   }
@@ -99,29 +157,36 @@ function canScroll(scrollable: Required<ScrollCandidate>, deltaY: number): boole
 }
 
 export function bindOuterScrollLock(root: TouchRoot): () => void {
-  let lastTouchY: number | null = null;
+  let lastTouchPoint: TouchPoint | null = null;
 
   const handleTouchStart = (event: TouchEvent) => {
-    lastTouchY = touchY(event);
+    lastTouchPoint = touchPoint(event);
   };
 
   const handleTouchMove = (event: TouchEvent) => {
-    const y = touchY(event);
+    const point = touchPoint(event);
     if (hasNativeTextEditor(event)) {
-      lastTouchY = y;
+      lastTouchPoint = point;
       return;
     }
 
-    if (y === null || lastTouchY === null) {
-      lastTouchY = y;
+    if (point === null || lastTouchPoint === null) {
+      lastTouchPoint = point;
       preventOuterScroll(event);
       return;
     }
 
-    const deltaY = lastTouchY - y;
-    lastTouchY = y;
-    const scrollable = findScrollable(event);
-    if (scrollable && canScroll(scrollable, deltaY)) {
+    const deltaX = lastTouchPoint.x - point.x;
+    const deltaY = lastTouchPoint.y - point.y;
+    lastTouchPoint = point;
+    const horizontalIntent = Math.abs(deltaX) > Math.abs(deltaY);
+    const horizontalScrollable = horizontalIntent ? findHorizontalScrollable(event) : null;
+    if (horizontalScrollable && canScrollHorizontal(horizontalScrollable, deltaX)) {
+      return;
+    }
+
+    const verticalScrollable = horizontalIntent ? null : findVerticalScrollable(event);
+    if (verticalScrollable && canScrollVertical(verticalScrollable, deltaY)) {
       return;
     }
 
@@ -129,7 +194,7 @@ export function bindOuterScrollLock(root: TouchRoot): () => void {
   };
 
   const handleTouchEnd = () => {
-    lastTouchY = null;
+    lastTouchPoint = null;
   };
 
   root.addEventListener("touchstart", handleTouchStart, { passive: true });

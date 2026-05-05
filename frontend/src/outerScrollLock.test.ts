@@ -4,12 +4,21 @@ import { bindOuterScrollLock } from "./outerScrollLock";
 class FakeRoot extends EventTarget {}
 
 class FakeScrollable {
+  public scrollLeft: number;
+  readonly clientWidth: number;
+  readonly scrollWidth: number;
+
   constructor(
     readonly selectorMatch: boolean,
     public scrollTop: number,
     readonly clientHeight: number,
-    readonly scrollHeight: number
-  ) {}
+    readonly scrollHeight: number,
+    dimensions: { scrollLeft?: number; clientWidth?: number; scrollWidth?: number } = {}
+  ) {
+    this.scrollLeft = dimensions.scrollLeft ?? 0;
+    this.clientWidth = dimensions.clientWidth ?? 100;
+    this.scrollWidth = dimensions.scrollWidth ?? 100;
+  }
 
   matches(selector: string): boolean {
     return selector === ".sheet, [data-opencozy-scrollable='true']" && this.selectorMatch;
@@ -30,9 +39,9 @@ class FakeInput {
   }
 }
 
-function touchEvent(type: string, y: number, path: unknown[]): Event {
+function touchEvent(type: string, y: number, path: unknown[], x = 0): Event {
   const event = new Event(type, { bubbles: true, cancelable: type === "touchmove" });
-  Object.defineProperty(event, "touches", { value: [{ clientY: y, pageY: y }] });
+  Object.defineProperty(event, "touches", { value: [{ clientX: x, clientY: y, pageX: x, pageY: y }] });
   Object.defineProperty(event, "composedPath", { value: () => path });
   return event;
 }
@@ -58,6 +67,20 @@ describe("outer scroll lock", () => {
 
     root.dispatchEvent(touchEvent("touchstart", 180, [sheet, root]));
     const move = touchEvent("touchmove", 140, [sheet, root]);
+    root.dispatchEvent(move);
+
+    expect(move.defaultPrevented).toBe(false);
+
+    cleanup();
+  });
+
+  it("allows a horizontal tab strip to scroll internally when it has room in the drag direction", () => {
+    const root = new FakeRoot();
+    const tabs = new FakeScrollable(true, 0, 42, 42, { scrollLeft: 20, clientWidth: 160, scrollWidth: 360 });
+    const cleanup = bindOuterScrollLock(root as unknown as HTMLElement);
+
+    root.dispatchEvent(touchEvent("touchstart", 24, [tabs, root], 220));
+    const move = touchEvent("touchmove", 24, [tabs, root], 140);
     root.dispatchEvent(move);
 
     expect(move.defaultPrevented).toBe(false);

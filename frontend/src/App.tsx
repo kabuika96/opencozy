@@ -19,18 +19,28 @@ import {
   ChevronRight,
   Copy,
   Monitor,
-  PencilLine,
   Plus,
   Settings,
   X
 } from "lucide-react";
 import {
+  approvePreviewManifest,
+  attachWiredPreviewToSession,
   closeOpenCozySession,
   createOpenCozySession,
+  deleteWiredPreview,
+  detachWiredPreviewFromSession,
   getCodexCapabilities,
   getWanTunnelStatus,
+  getWiredPreview,
+  launchPreviewWiringSession,
+  listPreviewManifests,
   listOpenCozySessions,
-  updateOpenCozySession
+  listWiredPreviews,
+  publishBrowserDirectPreviewServices,
+  publishPreviewTarget,
+  updateOpenCozySession,
+  updateWiredPreview
 } from "./api";
 import { buildOpenCozySessionSocketUrl } from "./appUrls";
 import { bindKeyboardReserve } from "./keyboardReserve";
@@ -52,13 +62,9 @@ import {
   type MobileTerminalPreferences
 } from "./mobileTerminalPreferences";
 import { bindOuterScrollLock } from "./outerScrollLock";
+import { ProjectPreviewPicker } from "./ProjectPreviewPicker";
+import { canOpenWiredPreviewFrame, previewNeedsPublishedTarget, readWiredPreviewOpenUrl } from "./projectPreview";
 import { getSessionLoadingCopy, type SessionLoadingCopy, type SessionLoadingPhase } from "./sessionLoading";
-import {
-  normalizePreviewUrl,
-  readSessionPreviewUrl,
-  removeSessionPreviewUrl,
-  writeSessionPreviewUrl
-} from "./sessionPreviewUrls";
 import {
   addSessionTabPreference,
   readLastCodexThreadId,
@@ -69,7 +75,7 @@ import {
   writeSessionTabPreferences,
   type SessionTabPreferences
 } from "./sessionTabPreferences";
-import { truncateSessionTabName } from "./sessionTabs";
+import { scrollActiveSessionTabIntoView, truncateSessionTabName } from "./sessionTabs";
 import { normalizeTerminalCopyText, writeTerminalClipboardText } from "./terminalClipboard";
 import { shouldShowArrowPad } from "./terminalControls";
 import { createTerminalOutputDrain } from "./terminalOutputDrain";
@@ -78,7 +84,10 @@ import { getTerminalVisualCursorStyle } from "./terminalVisualCursor";
 import type {
   OpenCozySessionMode,
   OpenCozySessionSummary,
-  WanTunnelStatus
+  PreviewManifest,
+  WanTunnelStatus,
+  WiredPreview,
+  WiredPreviewInput
 } from "./types";
 
 type Overlay = "editSessionTitle" | "preview" | "settings" | null;
@@ -96,7 +105,6 @@ const TERMINAL_INPUT_ZONE_HEIGHT = 202;
 const TERMINAL_FONT_SIZE = 14;
 const MOBILE_INPUT_FONT_SIZE = 16;
 const MOBILE_INPUT_SCALE = TERMINAL_FONT_SIZE / MOBILE_INPUT_FONT_SIZE;
-const PREVIEW_AGENT_TIP = "Please expose the app preview for this project on the LAN and send me the full URL reachable from my iPhone so I can paste it into OpenCozy Preview.";
 const ARROW_KEYS = {
   up: "\u001b[A",
   down: "\u001b[B",
@@ -1080,6 +1088,7 @@ function TerminalPane({
 
 export default function App() {
   const shellRef = useRef<HTMLElement | null>(null);
+  const sessionTabScrollerRef = useRef<HTMLDivElement | null>(null);
   const [deviceId] = useState(getDeviceId);
   const [initialSessionTabPreferences] = useState(() => readSessionTabPreferences(window.localStorage, deviceId));
   const [sessions, setSessions] = useState<OpenCozySessionSummary[]>([]);
@@ -1089,12 +1098,20 @@ export default function App() {
   const [loadingInitialData, setLoadingInitialData] = useState(true);
   const [busy, setBusy] = useState(false);
   const [pendingSessionMode, setPendingSessionMode] = useState<OpenCozySessionMode | null>(null);
-  const [previewUrl, setPreviewUrl] = useState(() => readSessionPreviewUrl(window.localStorage, null));
-  const [previewUrlDraft, setPreviewUrlDraft] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
   const [previewUrlError, setPreviewUrlError] = useState<string | null>(null);
-  const [previewUrlEditorOpen, setPreviewUrlEditorOpen] = useState(false);
+  const [previewPickerOpen, setPreviewPickerOpen] = useState(false);
+  const [wiredPreviews, setWiredPreviews] = useState<WiredPreview[]>([]);
+  const [previewManifests, setPreviewManifests] = useState<PreviewManifest[]>([]);
+  const [wiredPreviewSearch, setWiredPreviewSearch] = useState("");
+  const [wiredPreviewLoading, setWiredPreviewLoading] = useState(false);
+  const [editingWiredPreviewId, setEditingWiredPreviewId] = useState<string | null>(null);
+  const [editingWiredPreviewName, setEditingWiredPreviewName] = useState("");
+  const [confirmDeleteWiredPreviewId, setConfirmDeleteWiredPreviewId] = useState<string | null>(null);
+  const [copiedPreviewLinkId, setCopiedPreviewLinkId] = useState<string | null>(null);
+  const [previewManifestNameDrafts, setPreviewManifestNameDrafts] = useState<Record<string, string>>({});
+  const [previewWiringBrief, setPreviewWiringBrief] = useState("");
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
-  const [previewTipCopied, setPreviewTipCopied] = useState(false);
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [terminalPreferences, setTerminalPreferences] = useState(() => readMobileTerminalPreferences());
   const [wanTunnelStatus, setWanTunnelStatus] = useState<WanTunnelStatus | null>(null);
@@ -1104,6 +1121,7 @@ export default function App() {
   const [addSessionMenuOpen, setAddSessionMenuOpen] = useState(false);
   const [confirmCloseSessionId, setConfirmCloseSessionId] = useState<string | null>(null);
   const activeSessionIdRef = useRef<string | null>(activeSessionId);
+  const copiedPreviewLinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sessionById = useMemo(
     () => new Map(sessions.map((session) => [session.id, session])),
@@ -1118,6 +1136,24 @@ export default function App() {
     () => (activeSessionId ? sessionById.get(activeSessionId) ?? null : null),
     [activeSessionId, sessionById]
   );
+  const wiredPreviewById = useMemo(
+    () => new Map(wiredPreviews.map((preview) => [preview.id, preview])),
+    [wiredPreviews]
+  );
+  const activeWiredPreview = activeSession?.wiredPreviewId ? wiredPreviewById.get(activeSession.wiredPreviewId) ?? null : null;
+  const activeWiredPreviewId = activeSession?.wiredPreviewId ?? null;
+  const activeWiredPreviewOpenUrl = activeWiredPreview ? readWiredPreviewOpenUrl(activeWiredPreview) : "";
+  const activeWiredPreviewCanOpenFrame = activeWiredPreview ? canOpenWiredPreviewFrame(activeWiredPreview) : false;
+  const pendingManifestByPreviewId = useMemo(() => {
+    const map = new Map<string, PreviewManifest>();
+    for (const manifest of previewManifests) {
+      const previewId = manifest.wiredPreviewId ?? manifest.approvedWiredPreviewId;
+      if (previewId) {
+        map.set(previewId, manifest);
+      }
+    }
+    return map;
+  }, [previewManifests]);
   const confirmCloseSession = useMemo(
     () => (confirmCloseSessionId ? sessionById.get(confirmCloseSessionId) ?? null : null),
     [confirmCloseSessionId, sessionById]
@@ -1130,6 +1166,12 @@ export default function App() {
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
+
+  useEffect(() => {
+    if (activeSessionId) {
+      scrollActiveSessionTabIntoView(sessionTabScrollerRef.current);
+    }
+  }, [activeSessionId, sessionTabIds, sessionTabs.length]);
 
   const selectActiveSessionId = useCallback((sessionId: string | null) => {
     activeSessionIdRef.current = sessionId;
@@ -1160,18 +1202,52 @@ export default function App() {
   }, [confirmCloseSessionId, sessionById]);
 
   useEffect(() => {
-    const nextPreviewUrl = readSessionPreviewUrl(window.localStorage, activeSessionId);
-    setPreviewUrl(nextPreviewUrl);
-    setPreviewUrlDraft(nextPreviewUrl);
+    setPreviewUrl(activeWiredPreviewOpenUrl);
     setPreviewUrlError(null);
-    setPreviewUrlEditorOpen(false);
-  }, [activeSessionId]);
+  }, [activeWiredPreviewOpenUrl]);
+
+  useEffect(() => {
+    setPreviewPickerOpen(!activeWiredPreviewId || !activeWiredPreviewCanOpenFrame);
+  }, [activeWiredPreviewCanOpenFrame, activeWiredPreviewId]);
+
+  useEffect(() => {
+    const wiredPreviewId = activeSession?.wiredPreviewId;
+    if (!wiredPreviewId || wiredPreviewById.has(wiredPreviewId)) {
+      return;
+    }
+
+    let disposed = false;
+    getWiredPreview(wiredPreviewId)
+      .then((preview) => {
+        if (!disposed) {
+          setWiredPreviews((current) => [
+            preview,
+            ...current.filter((item) => item.id !== preview.id)
+          ]);
+        }
+      })
+      .catch((previewError: unknown) => {
+        if (!disposed && overlay === "preview") {
+          setPreviewUrlError(previewError instanceof Error ? previewError.message : "Failed to load attached Wired Preview");
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [activeSession?.wiredPreviewId, overlay, wiredPreviewById]);
 
   useEffect(() => {
     if (overlay === "preview" && previewUrl) {
       setPreviewFrameLoaded(false);
     }
   }, [overlay, previewUrl]);
+
+  useEffect(() => () => {
+    if (copiedPreviewLinkTimerRef.current) {
+      clearTimeout(copiedPreviewLinkTimerRef.current);
+    }
+  }, []);
 
   const refreshWanTunnelStatus = useCallback(async () => {
     setWanTunnelLoading(true);
@@ -1325,7 +1401,6 @@ export default function App() {
 
     try {
       await closeOpenCozySession(sessionId);
-      removeSessionPreviewUrl(window.localStorage, sessionId);
       setSessions((current) => current.filter((session) => session.id !== sessionId));
       persistSessionTabPreferences(nextPreferences);
       const nextSession = nextPreferences.activeSessionId ? sessionById.get(nextPreferences.activeSessionId) : null;
@@ -1339,6 +1414,72 @@ export default function App() {
     }
   };
 
+  const seedPreviewManifestNameDrafts = useCallback((manifests: PreviewManifest[]) => {
+    setPreviewManifestNameDrafts((current) => {
+      const next: Record<string, string> = {};
+      for (const manifest of manifests) {
+        next[manifest.id] = current[manifest.id] ?? manifest.proposedName;
+      }
+      return next;
+    });
+  }, []);
+
+  const refreshWiredPreviews = useCallback(async (search = wiredPreviewSearch) => {
+    setWiredPreviewLoading(true);
+    setPreviewUrlError(null);
+
+    try {
+      const [previews, manifests] = await Promise.all([
+        listWiredPreviews(search),
+        listPreviewManifests("pending")
+      ]);
+      setWiredPreviews(previews);
+      setPreviewManifests(manifests);
+      seedPreviewManifestNameDrafts(manifests);
+      return previews;
+    } catch (previewError) {
+      setPreviewUrlError(previewError instanceof Error ? previewError.message : "Failed to load Wired Previews");
+      return [];
+    } finally {
+      setWiredPreviewLoading(false);
+    }
+  }, [seedPreviewManifestNameDrafts, wiredPreviewSearch]);
+
+  useEffect(() => {
+    if (overlay !== "preview" || !previewPickerOpen) {
+      return;
+    }
+
+    let disposed = false;
+    setWiredPreviewLoading(true);
+    setPreviewUrlError(null);
+    Promise.all([
+      listWiredPreviews(wiredPreviewSearch),
+      listPreviewManifests("pending")
+    ])
+      .then(([previews, manifests]) => {
+        if (!disposed) {
+          setWiredPreviews(previews);
+          setPreviewManifests(manifests);
+          seedPreviewManifestNameDrafts(manifests);
+        }
+      })
+      .catch((previewError: unknown) => {
+        if (!disposed) {
+          setPreviewUrlError(previewError instanceof Error ? previewError.message : "Failed to load Wired Previews");
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setWiredPreviewLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [overlay, previewPickerOpen, seedPreviewManifestNameDrafts, wiredPreviewSearch]);
+
   const openPreview = () => {
     if (!activeSessionId) {
       setError("Open a session tab before using preview.");
@@ -1347,13 +1488,11 @@ export default function App() {
 
     setAddSessionMenuOpen(false);
     setConfirmCloseSessionId(null);
-    const sessionPreviewUrl = readSessionPreviewUrl(window.localStorage, activeSessionId);
-    setPreviewUrl(sessionPreviewUrl);
-    setPreviewUrlDraft(sessionPreviewUrl);
+    setPreviewUrl(activeWiredPreviewOpenUrl);
     setPreviewUrlError(null);
-    setPreviewUrlEditorOpen(false);
-    setPreviewTipCopied(false);
+    setPreviewPickerOpen(!activeWiredPreview || !activeWiredPreviewCanOpenFrame);
     setOverlay("preview");
+    void refreshWiredPreviews();
   };
 
   const openSettings = () => {
@@ -1362,87 +1501,327 @@ export default function App() {
     setOverlay("settings");
   };
 
-  const openPreviewUrlEditor = () => {
+  const openPreviewPicker = () => {
     setPreviewUrlError(null);
-    setPreviewUrlDraft(previewUrl);
-    setPreviewUrlEditorOpen(true);
+    setPreviewPickerOpen(true);
+    void refreshWiredPreviews();
   };
 
-  const savePreviewUrl = () => {
+  const showPreviewFrame = () => {
+    if (!previewUrl || !activeWiredPreviewCanOpenFrame) {
+      setPreviewUrlError("No openable preview is attached to this tab.");
+      return;
+    }
+
+    setPreviewPickerOpen(false);
+    setPreviewUrlError(null);
+  };
+
+  const attachWiredPreview = async (preview: WiredPreview) => {
     if (!activeSessionId) {
-      setPreviewUrlError("Open a session tab before saving preview URL.");
+      setPreviewUrlError("Open a session tab before attaching a Wired Preview.");
+      return;
+    }
+
+    setBusy(true);
+    setPreviewUrlError(null);
+    try {
+      const updated = await attachWiredPreviewToSession(activeSessionId, preview.id);
+      setSessions((current) => current.map((session) => (session.id === updated.id ? updated : session)));
+      setPreviewUrl(readWiredPreviewOpenUrl(preview));
+      setPreviewFrameLoaded(false);
+      setPreviewPickerOpen(!canOpenWiredPreviewFrame(preview));
+    } catch (previewError) {
+      setPreviewUrlError(previewError instanceof Error ? previewError.message : "Failed to attach Wired Preview");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const publishMissingPreviewOrigins = async (preview: WiredPreview) => {
+    const needsTargetPublish = previewNeedsPublishedTarget(preview);
+    const needsBrowserDirectPublish = preview.dependencyServices.some((service, serviceIndex) => (
+      service.browserDirect
+      && !preview.publishedOrigins.some((origin) => (
+        origin.source === "dependency-service"
+        && origin.dependencyServiceIndex === serviceIndex
+        && origin.status === "published"
+        && origin.publishedUrl
+      ))
+    ));
+
+    if (!needsTargetPublish && !needsBrowserDirectPublish) {
+      setPreviewUrlError("No missing private origins found for this Wired Preview.");
+      return;
+    }
+
+    setBusy(true);
+    setPreviewUrlError(null);
+    try {
+      let updatedPreview = preview;
+      if (needsTargetPublish) {
+        const publishedTarget = await publishPreviewTarget(preview.id);
+        updatedPreview = publishedTarget.wiredPreview;
+      }
+
+      if (needsBrowserDirectPublish) {
+        const publishedDependencies = await publishBrowserDirectPreviewServices(preview.id);
+        updatedPreview = publishedDependencies.wiredPreview;
+      }
+
+      setWiredPreviews((current) => [
+        updatedPreview,
+        ...current.filter((item) => item.id !== updatedPreview.id)
+      ]);
+      if (activeSession?.wiredPreviewId === updatedPreview.id) {
+        setPreviewUrl(readWiredPreviewOpenUrl(updatedPreview));
+        setPreviewFrameLoaded(false);
+      }
+    } catch (previewError) {
+      setPreviewUrlError(previewError instanceof Error ? previewError.message : "Failed to publish Preview Origin");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approvePreviewManifestForSession = async (manifest: PreviewManifest) => {
+    if (!activeSessionId) {
+      setPreviewUrlError("Open a session tab before approving a Preview Manifest.");
+      return;
+    }
+
+    const name = (previewManifestNameDrafts[manifest.id] ?? manifest.proposedName).trim();
+    if (!name) {
+      setPreviewUrlError("Wired Preview name is required.");
+      return;
+    }
+
+    setBusy(true);
+    setPreviewUrlError(null);
+    try {
+      const approval = await approvePreviewManifest(manifest.id, name);
+      const updatedSession = await attachWiredPreviewToSession(activeSessionId, approval.wiredPreview.id);
+      setWiredPreviews((current) => [
+        approval.wiredPreview,
+        ...current.filter((item) => item.id !== approval.wiredPreview.id)
+      ]);
+      setPreviewManifests((current) => current.filter((item) => item.id !== approval.manifest.id));
+      setSessions((current) => current.map((session) => (session.id === updatedSession.id ? updatedSession : session)));
+      setPreviewUrl(readWiredPreviewOpenUrl(approval.wiredPreview));
+      setPreviewFrameLoaded(false);
+      setPreviewPickerOpen(!canOpenWiredPreviewFrame(approval.wiredPreview));
+    } catch (previewError) {
+      setPreviewUrlError(previewError instanceof Error ? previewError.message : "Failed to approve Preview Manifest");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const previewToInput = (preview: WiredPreview, name = preview.name): WiredPreviewInput => ({
+    name,
+    projectDirectory: preview.projectDirectory,
+    target: preview.target,
+    dependencyServices: preview.dependencyServices,
+    commands: preview.commands,
+    requestedPublishedOrigins: preview.requestedPublishedOrigins
+  });
+
+  const detachActiveWiredPreview = async () => {
+    if (!activeSessionId) {
+      setPreviewUrlError("Open a session tab before detaching a Wired Preview.");
+      return;
+    }
+
+    setBusy(true);
+    setPreviewUrlError(null);
+    try {
+      const updated = await detachWiredPreviewFromSession(activeSessionId);
+      setSessions((current) => current.map((session) => (session.id === updated.id ? updated : session)));
+      setPreviewUrl("");
+      setPreviewPickerOpen(true);
+    } catch (previewError) {
+      setPreviewUrlError(previewError instanceof Error ? previewError.message : "Failed to detach Wired Preview");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startRenamingWiredPreview = (preview: WiredPreview) => {
+    setEditingWiredPreviewId(preview.id);
+    setEditingWiredPreviewName(preview.name);
+    setConfirmDeleteWiredPreviewId(null);
+    setPreviewUrlError(null);
+  };
+
+  const saveWiredPreviewName = async (preview: WiredPreview) => {
+    const name = editingWiredPreviewName.trim();
+    if (!name) {
+      setPreviewUrlError("Wired Preview name is required.");
+      return;
+    }
+
+    setBusy(true);
+    setPreviewUrlError(null);
+    try {
+      const updated = await updateWiredPreview(preview.id, previewToInput(preview, name));
+      setWiredPreviews((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setEditingWiredPreviewId(null);
+      setEditingWiredPreviewName("");
+    } catch (previewError) {
+      setPreviewUrlError(previewError instanceof Error ? previewError.message : "Failed to rename Wired Preview");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeWiredPreview = async (preview: WiredPreview) => {
+    setBusy(true);
+    setPreviewUrlError(null);
+    try {
+      await deleteWiredPreview(preview.id);
+      setWiredPreviews((current) => current.filter((item) => item.id !== preview.id));
+      setSessions((current) => current.map((session) => (
+        session.wiredPreviewId === preview.id ? { ...session, wiredPreviewId: null } : session
+      )));
+      if (activeSession?.wiredPreviewId === preview.id) {
+        setPreviewUrl("");
+        setPreviewPickerOpen(true);
+      }
+      setConfirmDeleteWiredPreviewId(null);
+    } catch (previewError) {
+      setPreviewUrlError(previewError instanceof Error ? previewError.message : "Failed to delete Wired Preview");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openPreviewWiringSession = async (preview?: WiredPreview) => {
+    const projectSearchBrief = (preview ? preview.name : previewWiringBrief).trim();
+    if (!projectSearchBrief) {
+      setPreviewUrlError("Describe the project before starting a wiring session.");
+      return;
+    }
+
+    const tabPreferencesBeforeLaunch = { activeSessionId, tabIds: sessionTabIds };
+    setBusy(true);
+    setPreviewUrlError(null);
+    try {
+      const launch = await launchPreviewWiringSession({
+        deviceId,
+        projectSearchBrief,
+        ...(preview ? { wiredPreviewId: preview.id } : {})
+      });
+      setSessions((current) => [...current.filter((item) => item.id !== launch.session.id), launch.session]);
+      persistSessionTabPreferences(addSessionTabPreference(tabPreferencesBeforeLaunch, launch.session.id));
+      rememberCodexThreadForDevice(deviceId, launch.session);
+      const launchedPreview = launch.wiredPreview;
+      if (launchedPreview) {
+        setWiredPreviews((current) => [
+          launchedPreview,
+          ...current.filter((item) => item.id !== launchedPreview.id)
+        ]);
+      }
+      setPreviewWiringBrief("");
+      setOverlay(null);
+    } catch (previewError) {
+      setPreviewUrlError(previewError instanceof Error ? previewError.message : "Failed to start Preview Wiring Session");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reviewPreviewManifest = (manifest?: PreviewManifest) => {
+    if (!manifest) {
+      setPreviewUrlError("No pending manifest is available for this Wired Preview.");
+      return;
+    }
+
+    setPreviewUrlError(null);
+    document.getElementById(`preview-manifest-${manifest.id}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
+  };
+
+  const copyPreviewLink = async (preview: WiredPreview, url: string) => {
+    if (!window.navigator.clipboard) {
+      setPreviewUrlError("Clipboard is not available in this browser.");
       return;
     }
 
     setPreviewUrlError(null);
     try {
-      const nextUrl = normalizePreviewUrl(previewUrlDraft);
-      writeSessionPreviewUrl(window.localStorage, activeSessionId, nextUrl);
-      setPreviewUrl(nextUrl);
-      setPreviewUrlDraft(nextUrl);
-      setPreviewUrlEditorOpen(false);
-    } catch (previewUrlError) {
-      setPreviewUrlError(previewUrlError instanceof Error ? previewUrlError.message : "Failed to save preview URL");
+      await window.navigator.clipboard.writeText(url);
+      setCopiedPreviewLinkId(preview.id);
+      if (copiedPreviewLinkTimerRef.current) {
+        clearTimeout(copiedPreviewLinkTimerRef.current);
+      }
+      copiedPreviewLinkTimerRef.current = setTimeout(() => {
+        setCopiedPreviewLinkId(null);
+        copiedPreviewLinkTimerRef.current = null;
+      }, 1600);
+    } catch {
+      setPreviewUrlError("Failed to copy preview link.");
     }
   };
 
-  const copyPreviewAgentTip = () => {
-    setPreviewTipCopied(false);
-    void writeTerminalClipboardText(PREVIEW_AGENT_TIP).then((copied) => {
-      if (!copied) {
-        return;
-      }
-
-      setPreviewTipCopied(true);
-      window.setTimeout(() => setPreviewTipCopied(false), 1500);
-    });
-  };
-
-  const renderPreviewUrlForm = (className: string, includeInstructions: boolean) => (
-    <form
-      className={className}
-      onSubmit={(event) => {
-        event.preventDefault();
-        savePreviewUrl();
+  const renderWiredPreviewPicker = () => (
+    <ProjectPreviewPicker
+      activePreview={activeWiredPreview}
+      busy={busy}
+      confirmDeletePreviewId={confirmDeleteWiredPreviewId}
+      editingPreviewId={editingWiredPreviewId}
+      editingPreviewName={editingWiredPreviewName}
+      error={previewUrlError}
+      copiedPreviewLinkId={copiedPreviewLinkId}
+      healthyPreviewId={previewFrameLoaded && activeWiredPreviewCanOpenFrame ? activeWiredPreviewId : null}
+      loading={wiredPreviewLoading}
+      pendingManifestByPreviewId={pendingManifestByPreviewId}
+      previewManifestNameDrafts={previewManifestNameDrafts}
+      previewManifests={previewManifests}
+      previews={wiredPreviews}
+      search={wiredPreviewSearch}
+      wiringBrief={previewWiringBrief}
+      onApproveManifest={(manifest) => void approvePreviewManifestForSession(manifest)}
+      onAttachPreview={(preview) => void attachWiredPreview(preview)}
+      onCancelDeletePreview={() => setConfirmDeleteWiredPreviewId(null)}
+      onCancelRenamePreview={() => setEditingWiredPreviewId(null)}
+      onConfirmDeletePreview={setConfirmDeleteWiredPreviewId}
+      onCopyPreviewLink={(preview, url) => void copyPreviewLink(preview, url)}
+      onDeletePreview={(preview) => void removeWiredPreview(preview)}
+      onDetachActivePreview={() => void detachActiveWiredPreview()}
+      onEditingPreviewNameChange={setEditingWiredPreviewName}
+      onManifestNameDraftChange={(manifestId, value) => {
+        setPreviewManifestNameDrafts((current) => ({
+          ...current,
+          [manifestId]: value
+        }));
       }}
-    >
-      {includeInstructions && (
-        <div className="previewEmptyCopy">
-          <h2>Preview URL</h2>
-          <p>Enter the local app URL for this session tab. Saved URLs stay attached to the current tab.</p>
-        </div>
-      )}
-      <label className="field previewUrlField">
-        <span>Preview URL</span>
-        <input
-          autoCapitalize="off"
-          autoCorrect="off"
-          inputMode="url"
-          placeholder="localhost:5173"
-          value={previewUrlDraft}
-          onChange={(event) => {
-            setPreviewUrlDraft(event.currentTarget.value);
-            setPreviewUrlError(null);
-          }}
-        />
-      </label>
-      {previewUrlError && <div className="previewUrlError">{previewUrlError}</div>}
-      <button className="primaryButton previewSaveButton" type="submit">
-        <span>Save URL</span>
-      </button>
-      {includeInstructions && (
-        <div className="previewAgentTip">
-          <div className="previewAgentTipText">
-            <span>Need help finding the URL?</span>
-            <p>Paste this message to your agent if you do not know how to connect.</p>
-            <code>{PREVIEW_AGENT_TIP}</code>
-          </div>
-          <button className="previewAgentTipCopy" type="button" onClick={copyPreviewAgentTip}>
-            <span>{previewTipCopied ? "Copied" : "Copy Message"}</span>
-          </button>
-        </div>
-      )}
-    </form>
+      onOpenWiringSession={(preview) => void openPreviewWiringSession(preview)}
+      onRunPreviewAction={(preview, previewState, pendingManifest) => {
+        if (previewState.recoveryAction === "open-wiring-session") {
+          void openPreviewWiringSession(preview);
+          return;
+        }
+
+        if (previewState.recoveryAction === "publish") {
+          void publishMissingPreviewOrigins(preview);
+          return;
+        }
+
+        if (previewState.recoveryAction === "review-manifest") {
+          reviewPreviewManifest(pendingManifest);
+          return;
+        }
+
+        void attachWiredPreview(preview);
+      }}
+      onSaveRenamePreview={(preview) => void saveWiredPreviewName(preview)}
+      onSearchChange={setWiredPreviewSearch}
+      onStartNewWiringSession={() => void openPreviewWiringSession()}
+      onStartRenamePreview={startRenamingWiredPreview}
+      onWiringBriefChange={setPreviewWiringBrief}
+    />
   );
 
   const updateTerminalPreference = (key: MobileTerminalPreferenceKey, value: boolean) => {
@@ -1470,7 +1849,7 @@ export default function App() {
       )}
 
       <div className="sessionTabBar" aria-label="OpenCozy session tabs">
-        <div className="sessionTabScroller" data-opencozy-scrollable="true">
+        <div className="sessionTabScroller" data-opencozy-scrollable="true" ref={sessionTabScrollerRef}>
           {showStartPlaceholder && (
             <div className="sessionTab active sessionTabPlaceholder" aria-current="page">
               <span className="sessionTabPlaceholderName">OpenCozy</span>
@@ -1482,7 +1861,11 @@ export default function App() {
           {sessionTabs.map((session) => {
             const isActive = session.id === activeSessionId;
             return (
-              <div className={isActive ? "sessionTab active" : "sessionTab"} key={session.id}>
+              <div
+                className={isActive ? "sessionTab active" : "sessionTab"}
+                data-session-tab-active={isActive ? "true" : undefined}
+                key={session.id}
+              >
                 <button
                   className="sessionTabName"
                   type="button"
@@ -1577,7 +1960,11 @@ export default function App() {
               key={session.id}
               aria-hidden={session.id !== activeSessionId}
             >
-              <TerminalPane preferences={terminalPreferences} session={session} onSessionUpdate={handleSessionUpdate} />
+              <TerminalPane
+                preferences={terminalPreferences}
+                session={session}
+                onSessionUpdate={handleSessionUpdate}
+              />
             </div>
           ))
         ) : pendingSessionMode ? (
@@ -1619,17 +2006,18 @@ export default function App() {
             className="previewEdgeDockButton"
             type="button"
             onMouseDown={(event) => event.preventDefault()}
-            onClick={openPreviewUrlEditor}
-            aria-label="Edit preview URL"
+            onClick={previewPickerOpen ? showPreviewFrame : openPreviewPicker}
+            disabled={previewPickerOpen && (!previewUrl || !activeWiredPreviewCanOpenFrame)}
+            aria-label={previewPickerOpen ? "View preview" : "Preview configuration"}
           >
-            <PencilLine size={18} />
+            {previewPickerOpen ? <Monitor size={18} /> : <Settings size={18} />}
           </button>
           <button
             className="previewEdgeDockButton"
             type="button"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
-              setPreviewUrlEditorOpen(false);
+              setPreviewPickerOpen(false);
               setPreviewUrlError(null);
               setOverlay(null);
             }}
@@ -1823,11 +2211,18 @@ export default function App() {
       )}
 
       {overlay === "preview" && (
-        <section className="previewSheet" data-opencozy-scrollable="true" aria-label="App preview">
-          {previewUrlEditorOpen && previewUrl && renderPreviewUrlForm("previewUrlEditor", false)}
-          {previewUrl ? (
+        <section
+          className={previewUrl && activeWiredPreviewCanOpenFrame && !previewPickerOpen ? "previewSheet previewSheet--frame" : "previewSheet previewSheet--picker"}
+          data-opencozy-scrollable="true"
+          aria-label="App preview"
+        >
+          {previewUrl && activeWiredPreviewCanOpenFrame && !previewPickerOpen ? (
             <>
-              {!previewFrameLoaded && <div className="previewFrameLoading" aria-hidden="true" />}
+              {!previewFrameLoaded && (
+                <div className="previewFrameLoading" role="status" aria-live="polite">
+                  Loading preview...
+                </div>
+              )}
               <iframe
                 className={previewFrameLoaded ? "previewFrame" : "previewFrame previewFrame--loading"}
                 src={previewUrl}
@@ -1836,7 +2231,7 @@ export default function App() {
               />
             </>
           ) : (
-            <div className="previewEmptyState">{renderPreviewUrlForm("previewEmptyForm", true)}</div>
+            renderWiredPreviewPicker()
           )}
         </section>
       )}

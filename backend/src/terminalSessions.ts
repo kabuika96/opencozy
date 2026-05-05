@@ -12,6 +12,8 @@ import type { OpenCozySessionMode, OpenCozySessionSummary } from "./types.js";
 
 const HISTORY_LIMIT = 200_000;
 const CODEX_THREAD_SYNC_INTERVAL_MS = 1_000;
+const INPUT_FLUSH_DELAY_MS = 1;
+const INPUT_WRITE_CHUNK_SIZE = 128;
 const OUTPUT_FLUSH_DELAY_MS = 24;
 const OUTPUT_FRAME_LIMIT = 64_000;
 /* eslint-disable no-control-regex -- ANSI terminal parsing intentionally matches control sequences. */
@@ -44,6 +46,10 @@ type AttachOptions = {
 type ListOptions = {
   deviceId?: string;
   tabIds?: string[];
+};
+type InternalCreateOpenCozySessionInput = CreateOpenCozySessionInput & {
+  id?: string;
+  initialPrompt?: string;
 };
 
 export function sendSerializedMessage(socket: SendableWebSocket, payload: string, onError?: () => void): boolean {
@@ -112,9 +118,9 @@ function resolveCwd(config: OpenCozyConfig, requested: string | undefined): stri
   return cwd;
 }
 
-function commandArgs(mode: OpenCozySessionMode, cwd: string, codexThreadId?: string): string[] {
+function commandArgs(mode: OpenCozySessionMode, cwd: string, codexThreadId?: string, initialPrompt?: string): string[] {
   if (mode === "new") {
-    return ["-C", cwd];
+    return initialPrompt ? ["-C", cwd, initialPrompt] : ["-C", cwd];
   }
 
   if (mode === "resumeLast") {
@@ -264,7 +270,9 @@ class OpenCozyPtySession {
   private history = "";
   private lastCodexThreadSyncAt = 0;
   private name: string;
+  private inputFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private outputFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingInput = "";
   private pendingOutput = "";
   private pendingCodexTitle: string | null = null;
   private pendingInputLine = "";
@@ -273,6 +281,7 @@ class OpenCozyPtySession {
   private latestSubmittedUserMessage: string | null = null;
   private userRenamed = false;
   private exitCode: number | null = null;
+  private wiredPreviewId: string | null = null;
   private updatedAt: string;
 
   readonly id: string;
@@ -284,8 +293,8 @@ class OpenCozyPtySession {
   readonly createdAtMs: number;
   readonly deviceId: string | null;
 
-  constructor(config: OpenCozyConfig, input: CreateOpenCozySessionInput, codexThreadStore: CodexThreadStore | null) {
-    this.id = randomUUID();
+  constructor(config: OpenCozyConfig, input: InternalCreateOpenCozySessionInput, codexThreadStore: CodexThreadStore | null) {
+    this.id = input.id || randomUUID();
     this.name = input.name || defaultSessionName(input.mode);
     this.pendingCodexTitle = input.name || null;
     this.userRenamed = Boolean(input.name);
@@ -293,11 +302,13 @@ class OpenCozyPtySession {
     this.mode = input.mode;
     this.deviceId = input.deviceId || null;
     const requestedCodexThreadId = input.mode === "resumeLast" ? input.codexThreadId : undefined;
+    const initialPrompt = input.mode === "new" ? input.initialPrompt?.trim() : undefined;
+    this.firstSubmittedUserMessage = initialPrompt || null;
     this.codexThreadId = requestedCodexThreadId || null;
     this.cwd = resolveCwd(config, input.cwd);
     const launch = resolveCodexLaunch(config.codexBin);
     this.command = launch.command;
-    this.args = [...launch.argsPrefix, ...commandArgs(input.mode, this.cwd, requestedCodexThreadId)];
+    this.args = [...launch.argsPrefix, ...commandArgs(input.mode, this.cwd, requestedCodexThreadId, initialPrompt)];
     this.createdAtMs = Date.now();
     this.createdAt = new Date(this.createdAtMs).toISOString();
     this.updatedAt = this.createdAt;
@@ -316,6 +327,8 @@ class OpenCozyPtySession {
     });
 
     this.ptyProcess.onExit(({ exitCode }) => {
+      this.clearInputFlushTimer();
+      this.pendingInput = "";
       this.flushOutput();
       this.stopCodexThreadSync();
       this.status = "exited";
@@ -324,7 +337,7 @@ class OpenCozyPtySession {
       this.broadcast({ type: "exit", exitCode });
     });
 
-    if (this.codexThreadStore && (this.mode === "resume" || this.mode === "resumeLast")) {
+    if (this.codexThreadStore && (this.mode === "resume" || this.mode === "resumeLast" || initialPrompt)) {
       this.startCodexThreadSync();
     }
   }
@@ -339,6 +352,7 @@ class OpenCozyPtySession {
       id: this.id,
       name: this.name,
       codexThreadId: this.codexThreadId,
+      wiredPreviewId: this.wiredPreviewId,
       deviceId: this.deviceId,
       mode: this.mode,
       command: this.command,
@@ -359,6 +373,31 @@ class OpenCozyPtySession {
     this.touch();
     this.broadcastStatus();
     return this.toSummary();
+  }
+
+  attachWiredPreview(wiredPreviewId: string): OpenCozySessionSummary {
+    this.wiredPreviewId = wiredPreviewId;
+    this.touch();
+    this.broadcastStatus();
+    return this.toSummary();
+  }
+
+  detachWiredPreview(): OpenCozySessionSummary {
+    this.wiredPreviewId = null;
+    this.touch();
+    this.broadcastStatus();
+    return this.toSummary();
+  }
+
+  detachDeletedWiredPreview(wiredPreviewId: string): boolean {
+    if (this.wiredPreviewId !== wiredPreviewId) {
+      return false;
+    }
+
+    this.wiredPreviewId = null;
+    this.touch();
+    this.broadcastStatus();
+    return true;
   }
 
   attach(socket: WebSocket, options: AttachOptions = {}): void {
@@ -386,11 +425,7 @@ class OpenCozyPtySession {
       }
 
       if (message.type === "input" && this.status === "running") {
-        if (this.markInputActivity(message.data)) {
-          this.broadcastStatus();
-        }
-        this.ptyProcess.write(message.data);
-        this.touch();
+        this.writeInput(message.data);
       }
 
       if (message.type === "resize" && this.status === "running") {
@@ -412,11 +447,71 @@ class OpenCozyPtySession {
   }
 
   kill(): void {
+    this.clearInputFlushTimer();
+    this.pendingInput = "";
     this.flushOutput();
     this.stopCodexThreadSync();
     if (this.status === "running") {
       this.ptyProcess.kill();
     }
+  }
+
+  writeInput(data: string): void {
+    if (this.status !== "running") {
+      return;
+    }
+
+    if (this.markInputActivity(data)) {
+      this.broadcastStatus();
+    }
+    this.queueInput(data);
+    this.touch();
+  }
+
+  private queueInput(data: string): void {
+    if (data.includes("\u0003")) {
+      this.pendingInput = "";
+    }
+
+    this.pendingInput += data;
+    this.scheduleInputFlush();
+  }
+
+  private scheduleInputFlush(): void {
+    if (this.inputFlushTimer || this.status !== "running" || !this.pendingInput) {
+      return;
+    }
+
+    this.inputFlushTimer = setTimeout(() => {
+      this.flushInput();
+    }, INPUT_FLUSH_DELAY_MS);
+    this.inputFlushTimer.unref?.();
+  }
+
+  private clearInputFlushTimer(): void {
+    if (!this.inputFlushTimer) {
+      return;
+    }
+
+    clearTimeout(this.inputFlushTimer);
+    this.inputFlushTimer = null;
+  }
+
+  private flushInput(): void {
+    this.inputFlushTimer = null;
+    if (this.status !== "running") {
+      this.pendingInput = "";
+      return;
+    }
+
+    const chunk = this.pendingInput.slice(0, INPUT_WRITE_CHUNK_SIZE);
+    this.pendingInput = this.pendingInput.slice(chunk.length);
+    if (chunk) {
+      this.ptyProcess.write(chunk);
+      this.touch();
+    }
+
+    this.scheduleInputFlush();
   }
 
   private appendHistory(data: string): void {
@@ -674,15 +769,45 @@ export class TerminalSessionManager {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  create(input: CreateOpenCozySessionInput): OpenCozySessionSummary {
+  create(input: InternalCreateOpenCozySessionInput): OpenCozySessionSummary {
     const session = new OpenCozyPtySession(this.config, input, this.codexThreadStore);
     this.sessions.set(session.id, session);
     return session.summary();
   }
 
+  get(id: string): OpenCozySessionSummary | null {
+    return this.sessions.get(id)?.summary() ?? null;
+  }
+
+  writeInput(id: string, data: string): boolean {
+    const session = this.sessions.get(id);
+    if (!session) {
+      return false;
+    }
+
+    session.writeInput(data);
+    return true;
+  }
+
   rename(id: string, input: RenameOpenCozySessionInput): OpenCozySessionSummary | null {
     const session = this.sessions.get(id);
     return session ? session.rename(input) : null;
+  }
+
+  attachWiredPreview(id: string, wiredPreviewId: string): OpenCozySessionSummary | null {
+    const session = this.sessions.get(id);
+    return session ? session.attachWiredPreview(wiredPreviewId) : null;
+  }
+
+  detachWiredPreview(id: string): OpenCozySessionSummary | null {
+    const session = this.sessions.get(id);
+    return session ? session.detachWiredPreview() : null;
+  }
+
+  detachDeletedWiredPreview(wiredPreviewId: string): void {
+    for (const session of this.sessions.values()) {
+      session.detachDeletedWiredPreview(wiredPreviewId);
+    }
   }
 
   attach(id: string, socket: WebSocket, options: AttachOptions = {}): boolean {
