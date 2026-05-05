@@ -163,6 +163,7 @@ button:disabled {
   overscroll-behavior-x: contain;
   padding: 0;
   scrollbar-width: none;
+  touch-action: pan-x;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -777,6 +778,10 @@ button:disabled {
   background: rgb(241 245 239 / 0.07);
 }
 
+.previewEdgeDockButton:disabled {
+  color: rgb(241 245 239 / 0.34);
+}
+
 .arrowPadButton:active {
   background: rgb(241 245 239 / 0.07);
 }
@@ -985,13 +990,26 @@ button:disabled {
 }
 
 .previewSheet {
+  background: #070a08;
+}
+
+.previewSheet--frame {
   background: #000;
   overflow: hidden;
 }
 
+.previewSheet--picker {
+  overflow: auto;
+}
+
 .previewFrameLoading {
+  align-items: center;
   background: #000;
+  color: rgb(241 245 239 / 0.58);
+  display: flex;
+  font-size: 13px;
   inset: 0;
+  justify-content: center;
   position: absolute;
 }
 
@@ -1107,64 +1125,563 @@ button:disabled {
   color: rgb(241 245 239 / 0.94);
 }
 
-.previewUrlEditor {
-  -webkit-backdrop-filter: blur(20px) saturate(1.12);
-  backdrop-filter: blur(20px) saturate(1.12);
-  background: var(--oc-overlay-surface-bg);
-  background-clip: padding-box;
-  border: 1px solid var(--oc-overlay-surface-border);
-  border-radius: 8px;
-  box-shadow: 0 14px 36px rgb(0 0 0 / 0.34);
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  left: 50%;
-  padding: 12px;
-  position: absolute;
-  top: calc(62px + var(--oc-safe-top, 0px));
-  transform: translateX(-50%);
-  width: min(560px, calc(100% - 20px - var(--oc-safe-left, 0px) - var(--oc-safe-right, 0px)));
+.projectPreviewPage {
+  background: #070a08;
+  color: #f1f5ef;
+  min-height: 100%;
+  position: relative;
+  width: 100%;
+}
+
+.projectPreviewPageHeader {
+  -webkit-backdrop-filter: blur(10px);
+  align-items: center;
+  backdrop-filter: blur(10px);
+  background: rgb(7 10 8 / 0.36);
+  border-bottom: 1px solid rgb(241 245 239 / 0.06);
+  display: flex;
+  min-height: calc(52px + var(--oc-safe-top, 0px));
+  padding: calc(8px + var(--oc-safe-top, 0px)) calc(62px + var(--oc-safe-right, 0px)) 8px calc(16px + var(--oc-safe-left, 0px));
+  position: sticky;
+  top: 0;
   z-index: 2;
 }
 
-.previewEmptyState {
-  align-items: start;
-  background: #070a08;
-  display: flex;
-  height: 100%;
-  justify-content: center;
-  padding: calc(92px + var(--oc-safe-top, 0px)) calc(16px + var(--oc-safe-right, 0px)) calc(26px + var(--oc-safe-bottom, 0px)) calc(16px + var(--oc-safe-left, 0px));
-}
-
-.previewEmptyForm {
-  display: grid;
-  gap: 16px;
-  width: min(336px, 100%);
-}
-
-.previewEmptyCopy {
-  display: grid;
-  gap: 5px;
-}
-
-.previewEmptyCopy h2,
-.previewEmptyCopy p {
+.projectPreviewPageHeader h2 {
+  color: rgb(241 245 239 / 0.9);
+  font-size: 16px;
+  font-weight: 720;
+  letter-spacing: 0;
+  line-height: 1;
   margin: 0;
 }
 
-.previewEmptyCopy h2 {
-  color: rgb(241 245 239 / 0.94);
-  font-size: 18px;
-  font-weight: 760;
-  letter-spacing: 0;
-  line-height: 1.15;
+.projectPreviewPageContent {
+  display: grid;
+  gap: 18px;
+  margin: 0;
+  max-width: calc(620px + var(--oc-safe-left, 0px) + var(--oc-safe-right, 0px));
+  padding: 20px calc(16px + var(--oc-safe-right, 0px)) calc(30px + var(--oc-safe-bottom, 0px)) calc(16px + var(--oc-safe-left, 0px));
+  width: 100%;
 }
 
-.previewEmptyCopy p {
+.projectPreviewTabs {
+  border-bottom: 1px solid rgb(241 245 239 / 0.08);
+  display: flex;
+  gap: 22px;
+  min-width: 0;
+}
+
+.projectPreviewTab {
+  background: transparent;
+  border: 0;
+  color: rgb(241 245 239 / 0.5);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 680;
+  letter-spacing: 0;
+  min-height: 36px;
+  padding: 0;
+  position: relative;
+}
+
+.projectPreviewTab.active {
+  color: rgb(241 245 239 / 0.9);
+}
+
+.projectPreviewTab.active::after {
+  background: rgb(241 245 239 / 0.82);
+  bottom: -1px;
+  content: "";
+  height: 1px;
+  left: 0;
+  position: absolute;
+  right: 0;
+}
+
+.projectPreviewPane {
+  display: grid;
+  gap: 26px;
+}
+
+.projectPreviewPaneCopy {
   color: rgb(241 245 239 / 0.54);
   font-size: 13px;
   font-weight: 560;
   line-height: 1.36;
+  margin: 0;
+}
+
+.projectPreviewPaneIntro {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.projectPreviewHelpButton {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: rgb(241 245 239 / 0.62);
+  display: inline-flex;
+  flex: none;
+  height: 36px;
+  justify-content: center;
+  padding: 0;
+  width: 44px;
+}
+
+.projectPreviewHelpButton:active {
+  background: rgb(241 245 239 / 0.06);
+  color: rgb(241 245 239 / 0.88);
+}
+
+.projectPreviewHelpOverlay {
+  align-items: start;
+  background: rgb(0 0 0 / 0.18);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: calc(74px + var(--oc-safe-top, 0px)) calc(12px + var(--oc-safe-right, 0px)) calc(18px + var(--oc-safe-bottom, 0px)) calc(12px + var(--oc-safe-left, 0px));
+  position: absolute;
+  z-index: 5;
+}
+
+.projectPreviewHelpDialog {
+  -webkit-backdrop-filter: blur(24px) saturate(1.14);
+  backdrop-filter: blur(24px) saturate(1.14);
+  background: rgb(7 10 8 / 0.68);
+  border: 1px solid rgb(241 245 239 / 0.12);
+  border-radius: 8px;
+  box-shadow: 0 14px 36px rgb(0 0 0 / 0.34);
+  color: #f1f5ef;
+  display: grid;
+  gap: 14px;
+  max-height: calc(100dvh - 108px - var(--oc-safe-top, 0px) - var(--oc-safe-bottom, 0px));
+  overflow: auto;
+  padding: 12px;
+  width: min(560px, 100%);
+}
+
+.projectPreviewHelpHeader {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.projectPreviewHelpHeader h3 {
+  color: rgb(241 245 239 / 0.92);
+  font-size: 15px;
+  font-weight: 720;
+  letter-spacing: 0;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.projectPreviewHelpBody {
+  display: grid;
+  gap: 18px;
+}
+
+.projectPreviewHelpBody section {
+  display: grid;
+  gap: 10px;
+}
+
+.projectPreviewHelpBody section + section {
+  border-top: 1px solid rgb(241 245 239 / 0.1);
+  padding-top: 16px;
+}
+
+.projectPreviewHelpBody h4 {
+  color: rgb(241 245 239 / 0.72);
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: 0;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.projectPreviewHelpBody dl {
+  display: grid;
+  gap: 11px;
+  margin: 0;
+}
+
+.projectPreviewHelpBody dl div {
+  display: grid;
+  gap: 3px;
+}
+
+.projectPreviewHelpBody dt {
+  color: rgb(241 245 239 / 0.88);
+  font-size: 13px;
+  font-weight: 680;
+  line-height: 1.25;
+}
+
+.projectPreviewHelpBody dd {
+  color: rgb(241 245 239 / 0.55);
+  font-size: 12px;
+  font-weight: 540;
+  line-height: 1.36;
+  margin: 0;
+}
+
+.projectPreviewSection {
+  display: grid;
+  gap: 12px;
+}
+
+.projectPreviewSection + .projectPreviewSection {
+  border-top: 1px solid rgb(241 245 239 / 0.08);
+  padding-top: 20px;
+}
+
+.projectPreviewSectionHeader {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.projectPreviewSectionHeader h3,
+.projectPreviewSectionHeader p {
+  margin: 0;
+}
+
+.projectPreviewSectionHeader h3 {
+  color: rgb(241 245 239 / 0.88);
+  font-size: 14px;
+  font-weight: 720;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.projectPreviewSectionHeader p {
+  color: rgb(241 245 239 / 0.54);
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.36;
+}
+
+.wiredPreviewList {
+  display: grid;
+}
+
+.wiredPreviewCreateForm {
+  display: grid;
+  gap: 12px;
+  padding: 0 0 2px;
+}
+
+.wiredPreviewListState {
+  color: rgb(241 245 239 / 0.5);
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.35;
+  padding: 13px 0;
+}
+
+.wiredPreviewAttachmentNote {
+  color: rgb(241 245 239 / 0.58);
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 1.3;
+  padding: 0 0 2px;
+}
+
+.wiredPreviewRow {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.wiredPreviewRow + .wiredPreviewRow {
+  border-top: 1px solid rgb(241 245 239 / 0.08);
+}
+
+.wiredPreviewManifestRow {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.wiredPreviewManifestRow + .wiredPreviewManifestRow {
+  border-top: 1px solid rgb(241 245 239 / 0.08);
+}
+
+.wiredPreviewManifestSummary {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.wiredPreviewManifestSummary strong,
+.wiredPreviewManifestSummary small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiredPreviewManifestSummary strong {
+  color: rgb(241 245 239 / 0.78);
+  font-size: 13px;
+  font-weight: 640;
+}
+
+.wiredPreviewManifestSummary small {
+  color: rgb(241 245 239 / 0.44);
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.wiredPreviewRowMain > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.wiredPreviewRowMain {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: rgb(241 245 239 / 0.86);
+  display: grid;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.wiredPreviewRowHeader {
+  align-items: start;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wiredPreviewStatusRail {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.wiredPreviewRowMain strong,
+.wiredPreviewRowMain small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiredPreviewRowMain strong {
+  color: rgb(241 245 239 / 0.78);
+  font-size: 13px;
+  font-weight: 640;
+  line-height: 1.25;
+}
+
+.wiredPreviewRowMain small {
+  color: rgb(241 245 239 / 0.44);
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.wiredPreviewAttachedLabel {
+  align-self: start;
+  background: rgb(146 235 171 / 0.1);
+  border: 1px solid rgb(146 235 171 / 0.2);
+  border-radius: 6px;
+  color: rgb(178 244 197 / 0.9);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 6px;
+  width: fit-content;
+}
+
+.wiredPreviewRowMain:active {
+  background: transparent;
+}
+
+.wiredPreviewRowActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  min-width: 0;
+  overflow: visible;
+}
+
+.wiredPreviewCopyLinkButton {
+  align-items: center;
+  background: rgb(241 245 239 / 0.12);
+  border: 1px solid rgb(241 245 239 / 0.22);
+  border-radius: 8px;
+  color: rgb(241 245 239 / 0.9);
+  display: inline-flex;
+  flex: 1 1 100%;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 780;
+  gap: 7px;
+  justify-content: center;
+  max-width: 100%;
+  min-height: 36px;
+  min-width: 0;
+  padding: 0 11px;
+}
+
+.wiredPreviewCopyLinkButton span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiredPreviewCopyLinkButton:active:not(:disabled) {
+  background: rgb(241 245 239 / 0.18);
+}
+
+.wiredPreviewCopyLinkButton:disabled {
+  color: rgb(241 245 239 / 0.42);
+}
+
+.wiredPreviewActionConfirm {
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+  backdrop-filter: blur(18px) saturate(1.12);
+  background: rgb(7 10 8 / 0.48);
+  border: 1px solid rgb(241 245 239 / 0.1);
+  border-radius: 8px;
+  color: rgb(241 245 239 / 0.82);
+  display: grid;
+  gap: 10px;
+  margin: 3px 0 0;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.wiredPreviewActionConfirm > span {
+  font-size: 12px;
+  font-weight: 640;
+  line-height: 1.3;
+}
+
+.wiredPreviewActionConfirmActions {
+  border-top: 1px solid rgb(241 245 239 / 0.08);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 0 -10px -10px;
+}
+
+.wiredPreviewActionConfirmActions button {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: rgb(241 245 239 / 0.68);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 680;
+  min-height: 40px;
+  padding: 0 10px;
+}
+
+.wiredPreviewActionConfirmActions button + button {
+  border-left: 1px solid rgb(241 245 239 / 0.08);
+}
+
+.wiredPreviewActionConfirmActions button:active:not(:disabled) {
+  background: rgb(241 245 239 / 0.06);
+}
+
+.wiredPreviewActionConfirmActions button.danger {
+  color: #ff9388;
+}
+
+.wiredPreviewRenameForm {
+  display: grid;
+  gap: 8px;
+}
+
+.dangerText {
+  color: #ffb8b0;
+}
+
+.previewStateLabel {
+  align-self: start;
+  border-radius: 6px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 6px;
+  width: fit-content;
+}
+
+.previewStateLabelButton {
+  appearance: none;
+  font: inherit;
+  min-height: 28px;
+  touch-action: manipulation;
+}
+
+.previewStateLabelButton:active:not(:disabled) {
+  color: rgb(241 245 239 / 0.96);
+}
+
+.previewStateLabelButton:disabled {
+  opacity: 0.54;
+}
+
+.previewStateLabel--ready {
+  background: rgb(98 211 132 / 0.09);
+  border: 1px solid rgb(98 211 132 / 0.17);
+  color: rgb(146 235 171 / 0.86);
+}
+
+.previewStateLabel--attention {
+  background: rgb(241 245 239 / 0.09);
+  border: 1px solid rgb(241 245 239 / 0.14);
+  color: rgb(241 245 239 / 0.82);
+}
+
+.previewStateLabel--pending {
+  background: rgb(166 189 255 / 0.1);
+  border: 1px solid rgb(166 189 255 / 0.18);
+  color: rgb(188 204 255 / 0.88);
+}
+
+.previewStateLabel--blocked {
+  background: rgb(255 184 176 / 0.1);
+  border: 1px solid rgb(255 184 176 / 0.2);
+  color: rgb(255 199 193 / 0.9);
+}
+
+.wiredPreviewRowMain small.previewStateDetail {
+  color: rgb(241 245 239 / 0.58);
+  overflow: visible;
+  text-overflow: initial;
+  white-space: normal;
+}
+
+.wiredPreviewRowMain small.previewPublishedOrigin {
+  color: rgb(146 235 171 / 0.76);
+  overflow: visible;
+  text-overflow: initial;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .previewAgentTip {
@@ -1528,11 +2045,6 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
-  .sessionNameForm,
-  .previewUrlEditor {
-    grid-template-columns: 1fr;
-  }
-
   .primaryButton {
     align-self: stretch;
   }
@@ -1559,10 +2071,6 @@ button:disabled {
     max-height: calc(100dvh - 64px - var(--oc-safe-top, 0px) - var(--oc-keyboard-reserve));
     top: calc(52px + var(--oc-safe-top, 0px));
     width: calc(100% - 12px);
-  }
-
-  .previewUrlEditor {
-    top: calc(60px + var(--oc-safe-top, 0px));
   }
 
 }

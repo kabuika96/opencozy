@@ -110,6 +110,9 @@ From an enrolled iPhone:
 - Resume an existing session.
 - Confirm terminal output streams.
 - Confirm terminal input, arrows, Enter, and keyboard editing work.
-- Confirm Preview still works for URLs reachable from that device.
+- Confirm Project Preview can attach an existing Wired Preview.
+- Confirm Wire New Preview opens a visible Preview Wiring Session.
+- Confirm a Tailscale-published Preview Target opens from the iPhone.
+- If the app needs browser-direct dependency services, confirm each one works through its own private HTTPS origin.
 
-Record any failures in the relevant issue before changing the network model.
+See [project-preview.md](project-preview.md) for Preview Wiring Sessions, Preview Manifests, Preview State meanings, Tailscale Preview Publisher behavior, manual LAN targets, and the no-hidden-command-execution rule. Record any failures in the relevant issue before changing the network model.

@@ -32,6 +32,10 @@ export type OpenCozyConfig = {
   frontendPort?: number;
   tailscaleBin?: string;
   tailscaleSocket?: string;
+  previewPublishPortStart?: number;
+  previewPublishPortEnd?: number;
+  previewProxyPortStart?: number;
+  previewProxyPortEnd?: number;
 };
 
 export function readAllowedHosts(value: string | undefined): string[] {
@@ -44,6 +48,17 @@ export function readAllowedHosts(value: string | undefined): string[] {
 }
 
 export function readConfig(): OpenCozyConfig {
+  const previewPublishPortStart = readPort(process.env.OPENCOZY_PREVIEW_PUBLISH_PORT_START ?? "8443");
+  const previewPublishPortEnd = readPort(process.env.OPENCOZY_PREVIEW_PUBLISH_PORT_END ?? "8499");
+  if (previewPublishPortStart > previewPublishPortEnd) {
+    throw new Error("OPENCOZY_PREVIEW_PUBLISH_PORT_START must be less than or equal to OPENCOZY_PREVIEW_PUBLISH_PORT_END");
+  }
+  const previewProxyPortStart = readPort(process.env.OPENCOZY_PREVIEW_PROXY_PORT_START ?? "19000");
+  const previewProxyPortEnd = readPort(process.env.OPENCOZY_PREVIEW_PROXY_PORT_END ?? "19999");
+  if (previewProxyPortStart > previewProxyPortEnd) {
+    throw new Error("OPENCOZY_PREVIEW_PROXY_PORT_START must be less than or equal to OPENCOZY_PREVIEW_PROXY_PORT_END");
+  }
+
   return {
     host: process.env.OPENCOZY_HOST?.trim() || "0.0.0.0",
     port: readPort(process.env.OPENCOZY_PORT),
@@ -54,6 +69,10 @@ export function readConfig(): OpenCozyConfig {
     allowedHosts: readAllowedHosts(process.env.OPENCOZY_ALLOWED_HOSTS),
     frontendPort: readPort(process.env.OPENCOZY_FRONTEND_PORT),
     tailscaleBin: process.env.OPENCOZY_TAILSCALE_BIN?.trim() || "tailscale",
-    tailscaleSocket: process.env.OPENCOZY_TAILSCALE_SOCKET?.trim() || undefined
+    tailscaleSocket: process.env.OPENCOZY_TAILSCALE_SOCKET?.trim() || undefined,
+    previewPublishPortStart,
+    previewPublishPortEnd,
+    previewProxyPortStart,
+    previewProxyPortEnd
   };
 }

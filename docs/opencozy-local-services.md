@@ -178,3 +178,5 @@ npm run tailscale-userspace:stop
 Do not stop the official Tailscale app or a shared Tailscale daemon unless the user explicitly asks; it may be used by other tools.
 
 Tailscale Serve requires HTTPS certificates to be enabled for the tailnet. If that is not already enabled, the Tailscale CLI may prompt you to enable it. See the Tailscale docs for [Serve](https://tailscale.com/docs/features/tailscale-serve), the [`tailscale serve` CLI](https://tailscale.com/docs/reference/tailscale-cli/serve), and [HTTPS certificates](https://tailscale.com/docs/how-to/set-up-https-certificates).
+
+Project Preview can also use Tailscale Serve for port-based private HTTPS Preview Published Origins. Those published origins point at localhost-only OpenCozy Local Preview Proxies so the previewed app remains root-mounted without requiring framework-specific host allowlist changes. See [project-preview.md](project-preview.md) for the target/dependency publisher flow, direct LAN target behavior, proxy port configuration, and iPhone validation checklist.

@@ -99,6 +99,10 @@ The most common settings are:
 - `OPENCOZY_CODEX_BIN`: Codex command or absolute path. Defaults to `codex`.
 - `OPENCOZY_CODEX_CWD`: default Codex working directory. Defaults to the OS user's home directory.
 - `OPENCOZY_ALLOWED_HOSTS`: optional comma-separated browser-facing hostnames accepted by the frontend and backend origin guard. Include every hostname or IP you intend to open in the browser.
+- `OPENCOZY_PREVIEW_PUBLISH_PORT_START`: first HTTPS port OpenCozy may use for Tailscale Preview Published Origins. Defaults to `8443`.
+- `OPENCOZY_PREVIEW_PUBLISH_PORT_END`: last HTTPS port OpenCozy may use for Tailscale Preview Published Origins. Defaults to `8499`.
+- `OPENCOZY_PREVIEW_PROXY_PORT_START`: first localhost-only port OpenCozy may use for Local Preview Proxies behind published origins. Defaults to `19000`.
+- `OPENCOZY_PREVIEW_PROXY_PORT_END`: last localhost-only Local Preview Proxy port. Defaults to `19999`.
 
 ## Secure Remote Access
 
@@ -127,6 +131,16 @@ npm run private-wan:stop
 ```
 
 Use `wan:start` when OpenCozy should be available through the local services and enrolled Tailscale devices. It starts the local OpenCozy services and then enables Tailscale Serve. Use `private-wan:stop` to disable only the tailnet HTTPS origin, or `wan:stop` to disable the tailnet origin and stop the local OpenCozy services together.
+
+## Project Preview
+
+Project Preview uses backend-persisted Wired Previews instead of device-local raw URLs. A session can attach to a named Wired Preview, and any enrolled device can search and reuse those records.
+
+For direct LAN use, a Wired Preview can store a target URL that the phone can reach directly. For private WAN use, OpenCozy can publish the target and browser-direct dependency services through port-based Tailscale Serve HTTPS origins backed by localhost-only OpenCozy preview proxies. The browser sees each preview at `/`; OpenCozy handles the local hop so common dev servers do not need tailnet host allowlist patches.
+
+Preview wiring starts visible Codex sessions with process initial prompts that point to local prompt files. OpenCozy does not auto-type preview instructions into an already-running terminal session.
+
+See [docs/project-preview.md](docs/project-preview.md) for the full flow: Project Search Briefs, visible Preview Wiring Sessions, Preview Manifest approval, Preview State recovery, manual LAN targets, Tailscale Preview Publisher setup, and the no-hidden-command-execution rule.
 
 ## Durable Local Services
 
