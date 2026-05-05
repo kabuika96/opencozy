@@ -171,7 +171,7 @@ start_service() {
   local plist
   plist="$(plist_for_label "$label")"
   if launchctl print "$domain/$label" >/dev/null 2>&1; then
-    launchctl kickstart -k "$domain/$label"
+    echo "$label already loaded"
     return
   fi
   if ! launchctl bootstrap "$domain" "$plist"; then

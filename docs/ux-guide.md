@@ -17,6 +17,7 @@ OpenCozy should feel mobile-native and terminal-adjacent, but it should not cosp
 - Content should be top-weighted and left-aligned with normal mobile page margins. Do not center page content by default.
 - Use a constrained readable width when useful, but do not create a large left gutter or modal-like centered column.
 - Page headers may use a subtle blurred backing for readability. Keep title left and close/actions right.
+- Settings should lead with user-meaningful state and keep raw diagnostics collapsed or secondary. For access/network settings, show whether LAN/WAN are usable before exposing socket paths, host allowlists, or Serve output.
 
 ## Rows And Actions
 

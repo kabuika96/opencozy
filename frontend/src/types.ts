@@ -45,3 +45,32 @@ export type CodexCapabilities = {
   resumeListSupported: boolean;
   resumeListReason: string;
 };
+
+export type WanTunnelStatus = {
+  config: {
+    allowedHosts: string[];
+    backendHost: string;
+    backendLocalOnly: boolean;
+    backendPort: number;
+    frontendPort: number;
+    serveTarget: string;
+    tailscaleBin: string;
+    tailscaleSocket: string | null;
+  };
+  tailscale: {
+    backendState: string | null;
+    cliAvailable: boolean;
+    daemonReachable: boolean;
+    dnsName: string | null;
+    error: string | null;
+    health: string[];
+    httpsOrigin: string | null;
+    ips: string[];
+    nodeName: string | null;
+    online: boolean | null;
+    serveConfigured: boolean;
+    serveStatus: string | null;
+    tailnetSuffix: string | null;
+    version: string | null;
+  };
+};

@@ -28,7 +28,20 @@ export type OpenCozyConfig = {
   codexBin: string;
   defaultCodexCwd: string;
   codexStateDbPath?: string;
+  allowedHosts?: string[];
+  frontendPort?: number;
+  tailscaleBin?: string;
+  tailscaleSocket?: string;
 };
+
+export function readAllowedHosts(value: string | undefined): string[] {
+  return Array.from(new Set(
+    (value || "")
+      .split(",")
+      .map((host) => host.trim())
+      .filter(Boolean)
+  ));
+}
 
 export function readConfig(): OpenCozyConfig {
   return {
@@ -37,6 +50,10 @@ export function readConfig(): OpenCozyConfig {
     dbPath: resolveProjectPath(process.env.OPENCOZY_DB_PATH?.trim() || "data/opencozy.sqlite"),
     codexBin: process.env.OPENCOZY_CODEX_BIN?.trim() || "codex",
     defaultCodexCwd: process.env.OPENCOZY_CODEX_CWD?.trim() || homedir(),
-    codexStateDbPath: process.env.OPENCOZY_CODEX_STATE_DB_PATH?.trim() || path.join(process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"), "state_5.sqlite")
+    codexStateDbPath: process.env.OPENCOZY_CODEX_STATE_DB_PATH?.trim() || path.join(process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"), "state_5.sqlite"),
+    allowedHosts: readAllowedHosts(process.env.OPENCOZY_ALLOWED_HOSTS),
+    frontendPort: readPort(process.env.OPENCOZY_FRONTEND_PORT),
+    tailscaleBin: process.env.OPENCOZY_TAILSCALE_BIN?.trim() || "tailscale",
+    tailscaleSocket: process.env.OPENCOZY_TAILSCALE_SOCKET?.trim() || undefined
   };
 }

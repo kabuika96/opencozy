@@ -1036,27 +1036,75 @@ button:disabled {
 
 .settingsPageContent {
   display: grid;
-  gap: 12px;
+  gap: 22px;
   margin: 0;
-  max-width: calc(410px + var(--oc-safe-left, 0px) + var(--oc-safe-right, 0px));
+  max-width: calc(620px + var(--oc-safe-left, 0px) + var(--oc-safe-right, 0px));
   padding: 18px calc(16px + var(--oc-safe-right, 0px)) calc(26px + var(--oc-safe-bottom, 0px)) calc(16px + var(--oc-safe-left, 0px));
   width: 100%;
 }
 
-.settingsIntro {
+.settingsSection {
   display: grid;
-  gap: 4px;
+  gap: 11px;
 }
 
-.settingsIntro p {
+.settingsSectionHeader {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settingsSectionHeader h3,
+.settingsSectionHeader p {
   margin: 0;
 }
 
-.settingsIntro p {
+.settingsSectionHeader h3 {
+  color: rgb(241 245 239 / 0.88);
+  font-size: 14px;
+  font-weight: 720;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.settingsSectionHeader p {
   color: rgb(241 245 239 / 0.54);
   font-size: 13px;
   font-weight: 560;
   line-height: 1.36;
+}
+
+.settingsSectionHeaderWithAction {
+  align-items: start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.settingsSectionHeaderWithAction > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settingsTextButton {
+  background: transparent;
+  border: 0;
+  color: rgb(241 245 239 / 0.74);
+  flex: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 720;
+  min-height: 32px;
+  padding: 0 2px;
+}
+
+.settingsTextButton:disabled {
+  color: rgb(241 245 239 / 0.34);
+}
+
+.settingsTextButton:active:not(:disabled) {
+  color: rgb(241 245 239 / 0.94);
 }
 
 .previewUrlEditor {
@@ -1193,6 +1241,154 @@ button:disabled {
   gap: 0;
   overflow: hidden;
   width: 100%;
+}
+
+.accessStatus {
+  align-items: start;
+  border-bottom: 1px solid rgb(241 245 239 / 0.1);
+  border-top: 1px solid rgb(241 245 239 / 0.1);
+  display: flex;
+  gap: 10px;
+  padding: 12px 2px;
+}
+
+.accessStatusDot {
+  background: rgb(241 245 239 / 0.24);
+  border-radius: 999px;
+  flex: none;
+  height: 8px;
+  margin-top: 5px;
+  width: 8px;
+}
+
+.accessStatusDotReady {
+  background: rgb(96 211 132 / 0.9);
+}
+
+.accessStatusText {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.accessStatusText strong {
+  color: rgb(241 245 239 / 0.9);
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.2;
+}
+
+.accessStatusText span {
+  color: rgb(241 245 239 / 0.52);
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.accessSummaryList {
+  border-bottom: 1px solid rgb(241 245 239 / 0.1);
+  display: grid;
+  margin: 0;
+}
+
+.accessSummaryList div {
+  align-items: baseline;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(64px, auto) minmax(0, 1fr);
+  min-width: 0;
+  padding: 11px 2px;
+}
+
+.accessSummaryList div + div {
+  border-top: 1px solid rgb(241 245 239 / 0.08);
+}
+
+.accessSummaryList dt {
+  color: rgb(241 245 239 / 0.48);
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1.2;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.accessSummaryList dd {
+  color: rgb(241 245 239 / 0.84);
+  font-size: 13px;
+  font-weight: 580;
+  line-height: 1.32;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settingsDetails {
+  border-bottom: 1px solid rgb(241 245 239 / 0.1);
+}
+
+.settingsDetails summary {
+  align-items: center;
+  color: rgb(241 245 239 / 0.7);
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  font-weight: 720;
+  justify-content: space-between;
+  line-height: 1;
+  list-style: none;
+  min-height: 42px;
+  padding: 0 2px;
+}
+
+.settingsDetails summary::-webkit-details-marker {
+  display: none;
+}
+
+.settingsDetails summary svg {
+  color: rgb(241 245 239 / 0.42);
+  transition: transform 120ms ease;
+}
+
+.settingsDetails[open] summary svg {
+  transform: rotate(90deg);
+}
+
+.settingsDefinitionList {
+  border-top: 1px solid rgb(241 245 239 / 0.1);
+  display: grid;
+  margin: 0;
+}
+
+.settingsDefinitionList div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 2px;
+}
+
+.settingsDefinitionList div + div {
+  border-top: 1px solid rgb(241 245 239 / 0.08);
+}
+
+.settingsDefinitionList dt {
+  color: rgb(241 245 239 / 0.46);
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1.2;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.settingsDefinitionList dd {
+  color: rgb(241 245 239 / 0.82);
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .settingRow {

@@ -3,7 +3,8 @@ import type {
   AppShortcutInput,
   CodexCapabilities,
   OpenCozySessionMode,
-  OpenCozySessionSummary
+  OpenCozySessionSummary,
+  WanTunnelStatus
 } from "./types";
 
 export type CreateOpenCozySessionOptions = {
@@ -47,6 +48,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function getCodexCapabilities(): Promise<CodexCapabilities> {
   return request<CodexCapabilities>("/api/codex");
+}
+
+export function getWanTunnelStatus(): Promise<WanTunnelStatus> {
+  return request<WanTunnelStatus>("/api/wan-tunnel");
 }
 
 export function listOpenCozySessions(options: ListOpenCozySessionsOptions): Promise<OpenCozySessionSummary[]> {
