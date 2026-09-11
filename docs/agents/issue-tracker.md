@@ -1,7 +1,5 @@
 # Issue Tracker
 
-This project uses local markdown issues by default.
+Opencozy uses GitHub issues for public bug reports, feature requests, and implementation coordination.
 
-- Issue directory: `.scratch/issues/`
-- One issue per markdown file.
-- Prefer small vertical slices that can be implemented and verified independently.
+Local agent task notes may use ignored `.scratch/issues/`. These files are private working notes and are not published automatically. Create one issue per independently verifiable task; include reproduction or acceptance criteria and relevant validation.

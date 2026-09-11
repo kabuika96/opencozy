@@ -1,5 +1,7 @@
 # Domain Docs
 
-- Canonical project language lives in `CONTEXT.md`.
-- Architectural decisions live in `docs/adr/`.
-- Keep OpenCozy's language distinct from Codex's own session model.
+Canonical domain language lives in `CONTEXT.md`.
+
+Architecture decisions live in `docs/adr/`.
+
+When adding new Harness concepts, update `CONTEXT.md` first, then add an ADR only when the decision is hard to reverse, surprising without context, and the result of a real trade-off.

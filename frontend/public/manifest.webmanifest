@@ -1,11 +1,12 @@
 {
-  "name": "OpenCozy",
-  "short_name": "OpenCozy",
-  "description": "LAN PWA for using Codex from an iPhone.",
+  "name": "Opencozy",
+  "short_name": "Opencozy",
+  "description": "Mobile-first harness control plane.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#060606",
+  "theme_color": "#060606",
   "icons": [
     {
       "src": "/icon.svg",

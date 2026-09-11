@@ -1,196 +1,212 @@
-# OpenCozy
+# Opencozy
 
-OpenCozy is a secure open-source PWA for running Codex from a phone or tablet while Codex stays on a computer you control.
-
-It starts Codex in a PTY on the Codex Host and streams the terminal into a mobile-friendly browser app. It is intentionally small: no cloud account, no general remote shell, and no public internet exposure path.
-
-> Status: early alpha. OpenCozy is for trusted private access: your own machine, your LAN, or explicitly enrolled devices on a private device network. It is not a public internet app.
-
-> Agents: start with [AGENTS.md](AGENTS.md). Humans: this README is the map.
-
-## Preview
-
-<p>
-  <img src="docs/assets/opencozy-codex-start.png" alt="OpenCozy showing a Codex terminal on a phone" width="320">
-  <img src="docs/assets/opencozy-mobile-session.png" alt="OpenCozy mobile session with terminal controls" width="320">
-</p>
-
-## Install
-
-OpenCozy has two pieces:
-
-1. **The OpenCozy server** runs on the computer where the repo, backend, frontend dev server, and Codex CLI live.
-2. **The PWA on your devices** connects to the OpenCozy origin over trusted private access. On iPhone or iPad, open the local, LAN, or private-WAN URL in Safari and save it to your Home Screen.
-
-### Give This To Your Agent
-
-OpenCozy is designed to be installed and operated with an AI coding agent. Start by asking your agent to install and run it:
-
-```text
-Install and start OpenCozy from GitHub:
-https://github.com/kabuika96/opencozy
-
-Please handle the setup end to end:
-- Use Node.js 22.12+ and npm 10+.
-- Make sure the Codex CLI is installed and authenticated on this computer.
-- Clone https://github.com/kabuika96/opencozy.git, or update the existing clone if it is already present.
-- Preserve existing data and .env files. Copy .env.example to .env only if .env does not exist.
-- Install dependencies with npm.
-- Start OpenCozy with npm run dev.
-- Do not stop unrelated apps or services. If the default ports are busy, choose free ports and tell me what changed.
-- Verify that the backend health endpoint works and that the frontend loads.
-- Tell me the local URL, LAN URL if available, frontend port, backend port, and default Codex working directory.
-- Help me connect my phone or tablet with Safari Add to Home Screen.
-- Ask whether I want private WAN access through Tailscale Serve as part of setup.
-- If I agree, follow docs/private-wan-agent-setup.md and configure the WAN path end to end: Tailscale enrollment, localhost-only backend, explicit OPENCOZY_ALLOWED_HOSTS, HTTPS Tailscale Serve, verification, and the final phone URL.
-- If I do not agree, leave WAN disabled and keep the direct local/LAN setup working.
-
-Useful defaults:
-- git clone https://github.com/kabuika96/opencozy.git
-- cd opencozy
-- npm install
-- cp .env.example .env
-- npm run dev
-```
-
-### Manual Install
-
-```sh
-git clone https://github.com/kabuika96/opencozy.git
-cd opencozy
-npm install
-cp .env.example .env
-npm run dev
-```
-
-Open `http://127.0.0.1:5175`. Vite will also print a LAN URL when one is available.
-
-The frontend proxies API requests and WebSockets to the backend at `http://127.0.0.1:8788`.
-
-On iPhone or iPad:
-
-1. Open the LAN URL or private-WAN HTTPS URL in Safari.
-2. Tap Share.
-3. Tap Add to Home Screen.
-4. Launch OpenCozy from the Home Screen icon.
+Opencozy is a mobile-first Codex control plane. It exposes a light PWA for driving Codex through its documented app-server protocol.
 
 ## Requirements
 
-- Node.js 22.12 or newer
-- npm 10 or newer
-- Codex CLI installed and authenticated on the Codex Host
+- Node.js 24 and npm. The backend uses Node's built-in SQLite.
+- A Codex account/session with access to the configured execution models. The pinned `@openai/codex` dependency is installed by `npm ci`; authenticate it with `npx codex login` before starting real Runs.
+- macOS for the optional launchd service scripts. Foreground development and CI do not require launchd.
+- Tailscale only for private mobile access and published project previews.
 
-## Configuration
+The execution profiles currently select `gpt-6-astra`; model availability depends on your account. Review `backend/src/profiles/executionProfiles.ts` before using an account that lacks that model. Mock mode can be used to explore the UI without a model session.
 
-OpenCozy reads backend runtime configuration from environment variables and from a root `.env` file when it exists. The frontend dev server also reads the root `.env` file.
+## Quick start
 
-Start from [.env.example](.env.example):
-
-```sh
+```bash
+git clone https://github.com/kabuika96/opencozy.git
+cd opencozy
+npm ci
 cp .env.example .env
+npx codex login
+npm run dev
 ```
 
-The most common settings are:
+Open `http://127.0.0.1:5173`. Keep credentials and local data out of Git. Configuration examples use the retained `LITEHARNESS_*` environment names; see [rename compatibility](docs/adr/0023-opencozy-public-release.md).
 
-- `OPENCOZY_HOST`: backend listen host. Defaults to `0.0.0.0` for direct local/LAN development. Use `127.0.0.1` for the recommended Tailscale Serve setup.
-- `OPENCOZY_PORT`: backend API and WebSocket port. Defaults to `8788`.
-- `OPENCOZY_FRONTEND_PORT`: Vite frontend port. Defaults to `5175`.
-- `OPENCOZY_DB_PATH`: local SQLite state path. Defaults to `./data/opencozy.sqlite`.
-- `OPENCOZY_CODEX_BIN`: Codex command or absolute path. Defaults to `codex`.
-- `OPENCOZY_CODEX_CWD`: default Codex working directory. Defaults to the OS user's home directory.
-- `OPENCOZY_ALLOWED_HOSTS`: optional comma-separated browser-facing hostnames accepted by the frontend and backend origin guard. Include every hostname or IP you intend to open in the browser.
-- `OPENCOZY_PREVIEW_PUBLISH_PORT_START`: first HTTPS port OpenCozy may use for Tailscale Preview Published Origins. Defaults to `8443`.
-- `OPENCOZY_PREVIEW_PUBLISH_PORT_END`: last HTTPS port OpenCozy may use for Tailscale Preview Published Origins. Defaults to `8499`.
-- `OPENCOZY_PREVIEW_PROXY_PORT_START`: first localhost-only port OpenCozy may use for Local Preview Proxies behind published origins. Defaults to `19000`.
-- `OPENCOZY_PREVIEW_PROXY_PORT_END`: last localhost-only Local Preview Proxy port. Defaults to `19999`.
-
-## Secure Remote Access
-
-For phone access away from the same network, use a private device network such as Tailscale and keep OpenCozy behind a tailnet-private HTTPS origin.
-
-Recommended first setup:
-
-- Bind the backend to `127.0.0.1`.
-- Serve the Vite frontend as the single OpenCozy origin.
-- Put Tailscale Serve in front of that frontend origin with HTTPS.
-- Set `OPENCOZY_ALLOWED_HOSTS` to the exact hostnames you will open in the browser.
-- Do not expose the backend port directly.
-- Do not use Tailscale Funnel or another public internet tunnel for OpenCozy.
-
-See [docs/opencozy-local-services.md](docs/opencozy-local-services.md#private-wan-with-tailscale-serve), [docs/private-wan-agent-setup.md](docs/private-wan-agent-setup.md), [SECURITY.md](SECURITY.md), and [ADR 0005](docs/adr/0005-private-wan-through-tailscale-serve.md).
-
-Helpers:
-
-```sh
-npm run wan:start
-npm run wan:stop
-npm run private-wan:doctor
-npm run private-wan:serve
-npm run private-wan:status
-npm run private-wan:stop
-```
-
-Use `wan:start` when OpenCozy should be available through the local services and enrolled Tailscale devices. It starts the local OpenCozy services and then enables Tailscale Serve. Use `private-wan:stop` to disable only the tailnet HTTPS origin, or `wan:stop` to disable the tailnet origin and stop the local OpenCozy services together.
-
-## Project Preview
-
-Project Preview uses backend-persisted Wired Previews instead of device-local raw URLs. A session can attach to a named Wired Preview, and any enrolled device can search and reuse those records.
-
-For direct LAN use, a Wired Preview can store a target URL that the phone can reach directly. For private WAN use, OpenCozy can publish the target and browser-direct dependency services through port-based Tailscale Serve HTTPS origins backed by localhost-only OpenCozy preview proxies. The browser sees each preview at `/`; OpenCozy handles the local hop so common dev servers do not need tailnet host allowlist patches.
-
-Preview wiring starts visible Codex sessions with process initial prompts that point to local prompt files. OpenCozy does not auto-type preview instructions into an already-running terminal session.
-
-See [docs/project-preview.md](docs/project-preview.md) for the full flow: Project Search Briefs, visible Preview Wiring Sessions, Preview Manifest approval, Preview State recovery, manual LAN targets, Tailscale Preview Publisher setup, and the no-hidden-command-execution rule.
-
-## Durable Local Services
-
-For long-running phone access on macOS, OpenCozy includes optional launchd helpers:
-
-```sh
-npm run lan:start
-npm run lan:stop
-npm run services:install
-npm run services:start
-```
-
-Do not run `npm run dev` and `npm run services:start` at the same time. Stop the foreground dev runner before enabling durable services, or the default ports will already be occupied.
-
-Frontend changes update through Vite/HMR. Backend changes require a manual restart because the backend owns live Codex PTYs; auto-restarting the backend can interrupt active conversations. See [docs/opencozy-local-services.md](docs/opencozy-local-services.md) for the backend restart policy, status, restart, stop, and log commands.
-
-## Local Data
-
-The repo-level `data/` directory is ignored except for `data/.gitkeep`. It may contain local SQLite state during development.
-
-Do not commit `.env` files, local session databases, Codex conversation output, or machine-specific logs.
-
-## Architecture
-
-The short version:
-
-```text
-Phone or tablet browser PWA
-  -> React mobile terminal shell
-  -> Vite proxy
-  -> Node/Fastify backend
-  -> Codex-only PTY process
-```
-
-See [CONTEXT.md](CONTEXT.md) and the ADRs in [docs/adr](docs/adr) for the project language and scope boundaries.
+For a UI-only smoke test, set `LITEHARNESS_CODEX_MODE=mock` in `.env` before starting. The optional OpenWrite and Hermes integrations are not required for basic use.
 
 ## Development
 
-```sh
-npm run check
-npm run test
-npm run build
+Install dependencies:
+
+```bash
+npm ci
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, checks, and pull request expectations.
+Run the local services in the foreground:
 
-## Security
+```bash
+npm run dev
+```
 
-OpenCozy is designed for trusted private access: your own machine, your LAN, or enrolled devices on a private device network. See [SECURITY.md](SECURITY.md) before exposing it beyond your own machine.
+The backend does not watch-restart by default because an in-flight Harness Run is owned by the current backend process. Restarting interrupts that Run but preserves its Thread, history, and Harness context. Tabs reconnect automatically and become ready for another message once the previous backend has exited. If its owner cannot be identified, recovery waits for the 60-second lease to expire; websocket heartbeats keep the tab's status current throughout recovery. Use backend watch mode only when no Runs are active:
 
-## License
+```bash
+npm run dev:watch --workspace @opencozy/backend
+```
 
-MIT. See [LICENSE](LICENSE).
+Default local URLs:
+
+- Frontend: `http://127.0.0.1:5173`
+- Backend health: `http://127.0.0.1:8787/api/health`
+
+The backend binds to localhost by default. Publish the frontend to trusted devices with Tailscale Serve rather than exposing the backend directly.
+
+If the default ports are occupied, override them for a single run:
+
+```bash
+LITEHARNESS_FRONTEND_PORT=5183 LITEHARNESS_BACKEND_PORT=8797 npm run dev
+```
+
+For durable local services:
+
+```bash
+npm run services:start
+npm run services:status
+```
+
+For an approved backend-only restart, run `launchctl kickstart -k gui/$(id -u)/com.liteharness.backend.dev` from a separate terminal or agent outside Opencozy. This reuses the registered service and leaves the frontend running. Backend restarts interrupt active Runs; their Threads and history remain available.
+
+Do not use `launchctl submit` or a KeepAlive job for a one-time restart. On 2026-09-06, a submitted temporary restart script was kept alive after successful exits and restarted both services roughly every 10 seconds. Its repeated service removal and registration coincided with macOS “Background Items Added” notifications. Removing that temporary job stopped the loop. Verify a restart by checking both health and unchanged service process IDs over at least 30 seconds.
+
+For Private WAN access through a Opencozy-owned Tailscale userspace node:
+
+```bash
+npm run tailscale-userspace:start
+tailscale --socket="$HOME/.local/share/liteharness-tailscale/tailscaled.sock" up --hostname=opencozy
+npm run wan:start
+```
+
+Use `wan:start` when Opencozy should be available through local services and enrolled Tailscale devices. It starts the local Opencozy services and enables Tailscale Serve on the Opencozy Tailscale socket. Use `private-wan:stop` to disable only the tailnet HTTPS origin, or `wan:stop` to disable the tailnet origin and stop local Opencozy services together.
+
+The old `scripts/tailscale-serve.sh` wrapper now delegates to `npm run private-wan:serve`.
+
+Do not run `npm run dev` and `npm run services:start` at the same time. Stop the foreground dev runner before enabling durable services, or the configured ports will already be occupied.
+
+Private WAN safety rules:
+
+- Keep `LITEHARNESS_BACKEND_HOST=127.0.0.1`.
+- Serve the frontend as the single Opencozy origin.
+- Put Tailscale Serve in front of that frontend origin with HTTPS.
+- Set `LITEHARNESS_ALLOWED_HOSTS` to the exact browser hostnames you will use.
+- Do not use Tailscale Funnel or a public tunnel for Opencozy.
+
+## Codex Harness Mode
+
+By default, `LITEHARNESS_CODEX_MODE=app-server` keeps a Codex app-server process warm and reuses it across Runs. This path supports streaming, steering, approvals, input requests, and subagent activity without exposing Codex protocol details to the PWA. Use `LITEHARNESS_CODEX_MODE=mock` only for UI/backend smoke tests.
+
+Follow-ups append new input to the same Codex history. The pool prefers an idle connection with that thread already loaded, and unchanged warm threads start the next turn without resuming again. Recovery resumes persisted history by id. Opencozy never rebuilds earlier model messages from the visible Timeline.
+
+`npm run test:prompt-cache` checks exact request-prefix equality using the installed Codex binary and a localhost Responses stub, including recovery through a fresh probe process. It does not call a live model or restart Opencozy.
+
+`npm run test:writer-isolation` checks that two Threads and their follow-ups run concurrently using separate owning Codex processes against a localhost Responses stub. It makes no live model calls and does not restart Opencozy.
+
+New tabs and existing Thread settings offer only **Balance**, **Speed**, and **Power**. Every main agent and subagent uses `gpt-6-astra`:
+
+| Profile | Main reasoning | Subagent reasoning | Default Fast mode |
+| --- | --- | --- | --- |
+| Balance (default) | high | high | On |
+| Speed | medium | low | On |
+| Power | max | xhigh | Off |
+
+The backend uses the same profile definitions for displayed settings, new and resumed Runs, and all subagent roles, including nested work. Delegation still follows session policy and tool/model restrictions. Retired `astra` selections resolve to Balance without rewriting history; saved Fast preferences remain per Thread.
+
+Model and effort environment settings apply only to utility model calls. They cannot override these profiles; obsolete `LITEHARNESS_CODEX_MODEL` and `LITEHARNESS_CODEX_REASONING_EFFORT` overrides are ignored.
+
+## Approval cards
+
+Agents can ask permission through `liteharness.request_approval({ action })`. The app shows **Yes** and **No** buttons, waits for the decision, and returns it to the agent. Approval authorizes only the described action once; the tool does not execute it. Backend restarts still interrupt active Runs.
+
+`npm run test:action-approval` checks tool registration and Yes/No delivery using the pinned Codex runtime and a localhost model stub; it makes no live model calls or restarts.
+
+The tool is installed on new Harness Threads after the backend update is loaded. Existing Threads retain history and their original tool definitions; agents ask plainly there. `request_user_input_async` is not connected to Opencozy approval cards in this installation. Native shell escalation can skip approval in full-access mode and is not a substitute.
+
+## WhatsApp Messaging
+
+Codex Threads created by Opencozy receive one outbound-only native tool:
+
+```text
+whatsapp.send_message({ message })
+```
+
+The recipient is not a tool argument. Configure the fixed owner chat and the local Hermes bridge port:
+
+```bash
+LITEHARNESS_WHATSAPP_CHAT_ID=your-owner-chat@lid
+LITEHARNESS_WHATSAPP_BRIDGE_PORT=3000
+```
+
+The backend checks the loopback bridge health before each send and returns pairing, offline, and send failures to Codex. Run `hermes whatsapp` when the Hermes session needs pairing. Threads created with the tool retain it when Codex resumes them; older Codex Threads need a Context Compaction or a new Opencozy Thread to establish a tool-enabled Harness Thread.
+
+## Event Presentation
+
+Opencozy projects normalized Codex events into compact mobile summaries synchronously before storing them. Event streaming never waits on a second model call. Full app-server items are not duplicated into timeline payloads.
+
+The native React shell keeps agent navigation and the composer reachable while the Timeline scrolls. Streaming follows the end only when you are already there; each Thread and agent keeps its reading position and draft. Long transcripts initially render the latest 100 entries, with earlier history available on demand.
+
+## Tabs and Agents
+
+Close an idle tab directly with its × control. Manage tabs supports search, close all idle tabs, close others, and Recently closed. Closing preserves the Thread and its history; Undo or Reopen restores it. **Stop work & close all** asks for confirmation and waits for cancellation; work that cannot be stopped stays open.
+
+Agent navigation shows lineage, task, status, and activity. **Agent messages** exposes coordination instructions and delivery results. Select a running agent to send it a directed message; its draft and replies stay separate from Main. Finished agents remain readable, with follow-up work sent through Main.
+
+## Verification
+
+```bash
+npm run check
+npm run test:browser --workspace frontend
+```
+
+Browser tests start an isolated frontend on `127.0.0.1:5187` with mocked API and WebSocket traffic; they never submit real Harness Runs. Install their Chromium engine with `npm exec --workspace frontend -- playwright install chromium`. WebKit is a separate check:
+
+```bash
+npm exec --workspace frontend -- playwright install webkit
+npm run test:browser:webkit --workspace frontend
+```
+
+The mobile browser suite covers tab recovery, agent messaging, scroll preservation, viewport resizing, keyboard dismissal, and confirmed stop-and-close. Actual iOS keyboard and safe-area behavior still need an on-device check. See `docs/audits/2026-09-06.md` for audit results and validation limits.
+
+## Opencozy System Configs
+
+Opencozy installs its mobile HTML reply contract as stable thread developer instructions. User prompts remain the stored, displayed, and dispatched input; the reply contract is not repeated in each message.
+
+## Context Compaction
+
+On request, Opencozy compacts older visible timeline history. It preserves the thread head and recent tail, stores a visible `thread.compacted` handoff event, hides summarized events from the primary timeline, and sends the latest handoff only through the hidden harness request. The stored user prompt remains unchanged.
+
+Compaction is explicitly requested and may use the optional Opencozy Model. Sending a message never auto-compacts the visible Timeline or resets a healthy Codex thread. Codex retains ownership of its model context window and native compaction.
+
+Useful overrides:
+
+- `LITEHARNESS_COMPACTION_CONTEXT_TOKENS`
+- `LITEHARNESS_COMPACTION_PROTECT_FIRST_EVENTS`
+- `LITEHARNESS_COMPACTION_PROTECT_LAST_EVENTS`
+- `LITEHARNESS_COMPACTION_TAIL_TOKENS`
+
+## Project Preview
+
+Project Preview stores reusable Wired Previews in the backend and attaches them to Threads. Use the Preview button in the mobile composer to attach a saved preview, approve a pending Preview Manifest, publish host-local targets through Tailscale Serve, or start a visible Preview Wiring Thread.
+
+Useful overrides:
+
+- `LITEHARNESS_TAILSCALE_BIN`
+- `LITEHARNESS_TAILSCALE_SOCKET`
+- `LITEHARNESS_PREVIEW_PUBLISH_PORT_START`
+- `LITEHARNESS_PREVIEW_PUBLISH_PORT_END`
+- `LITEHARNESS_PREVIEW_PROXY_PORT_START`
+- `LITEHARNESS_PREVIEW_PROXY_PORT_END`
+
+## Shared files
+
+Ask Opencozy to share a local file to receive a persistent, tappable file card in chat. For example: “Share the report as a PDF,” then in a later chat: “Find my report and show it.” Explicitly shared files remain in the same Device library after their source chat is closed or deleted. Incoming message attachments remain separate unless the Harness publishes them.
+
+Previews support plain text/code, static HTML, PDFs, images, and browser-supported audio/video. HTML previews disable scripts and remote resources. Search covers filenames, titles, descriptions, and available text/HTML/PDF content; images, recordings, and scanned PDFs have no OCR or transcription yet. Files are limited to 250 MiB, text previews to the first 4 MiB. File bytes and the search database live under `backend/data/assets`; include this directory in backups.
+
+`npm run test:file-tools` verifies native publish/search/read/show calls with the pinned Codex runtime and a loopback model stub, without a live model call or service restart. See [ADR 0021](docs/adr/0021-durable-file-assets.md) for retention, indexing, and access details.
+
+OpenWrite records use the same cards and viewer. Ask “Find my insurance record in OpenWrite and show it.” Opencozy searches the live records API and shares the chosen original as a checksum-verified snapshot, labeled with its source, revision, and status when shared. OpenWrite remains the record manager. Archived/invalid records can be requested explicitly; current record questions check OpenWrite again. Set `LITEHARNESS_OPENWRITE_ORIGIN` for a nondefault loopback origin (default `http://127.0.0.1:8787`). See [ADR 0022](docs/adr/0022-openwrite-record-previews.md).
+
+## Contributing and license
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and [SECURITY.md](SECURITY.md) for the trust boundary and vulnerability reporting. Opencozy is licensed under the [MIT License](LICENSE). It is an independent project and is not affiliated with OpenAI. Third-party software retains its own licenses.

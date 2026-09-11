@@ -1,0 +1,10 @@
+.lh-agent-communications { max-height: 160px; overflow: auto; padding: 0 12px; border-bottom: 1px solid rgba(243,243,240,.1); color: rgba(243,243,240,.72); font-size: 11px; }
+.lh-agent-communications summary { min-height: 30px; padding: 8px 0; cursor: pointer; color: rgba(243,243,240,.82); }
+.lh-agent-communications-list { display: grid; gap: 8px; padding: 0 0 10px; }
+.lh-agent-communications article { display: grid; gap: 3px; min-width: 0; padding-left: 8px; border-left: 1px solid rgba(143,199,255,.26); }
+.lh-agent-message-route { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; gap: 4px; overflow-wrap: anywhere; color: rgba(243,243,240,.5); }
+.lh-agent-message-route button, .lh-agent-messages-earlier { margin: 0; padding: 0; border: 0; background: transparent; color: rgba(143,199,255,.9); font: inherit; }
+.lh-agent-message-route small { margin-left: auto; color: rgba(243,243,240,.42); white-space: nowrap; }
+.lh-agent-message-body { color: rgba(243,243,240,.76); font-size: 11px; line-height: 1.35; }
+.lh-agent-message-body p { margin: 0; }
+.lh-agent-messages-earlier { justify-self: start; min-height: 28px; }

@@ -1,16 +1,14 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App";
-import "./styles.css";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { MobileApp } from "./mobile/MobileApp";
+import { installAppZoomLock } from "./mobile/zoomLock";
+import { registerServiceWorker } from "./registerServiceWorker";
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
+installAppZoomLock();
+registerServiceWorker();
+
+createRoot(document.getElementById("root") as HTMLElement).render(
+  <StrictMode>
+    <MobileApp />
+  </StrictMode>,
 );
-
-if ("serviceWorker" in navigator && import.meta.env.PROD) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => undefined);
-  });
-}

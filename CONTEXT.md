@@ -1,204 +1,106 @@
-# OpenCozy
+# Opencozy Context
 
-OpenCozy is a secure PWA for running Codex from a phone while Codex stays on a separate computer you control. It exists to provide a mobile interface to Codex without turning into a general-purpose remote shell. Access may be local, LAN, or Private WAN, but every path must stay inside a trusted private boundary.
+Opencozy is a mobile-first Codex control plane for a single developer. It provides a light PWA that drives Codex through its documented app-server protocol.
 
-## Language
+## Terms
 
-**Codex Host**:
-The user-controlled computer that runs the OpenCozy backend and starts Codex processes.
-_Avoid_: server, remote machine
+- Harness: Codex, the external agent runtime that owns execution semantics, auth, permissions, tool use, approvals, subagents, and long-running work.
+- Harness Adapter: the backend boundary that maps Codex app-server messages into Opencozy concepts. Codex SDK and protocol details do not leak into the PWA.
+- Codex Harness: the only supported Harness. Opencozy keeps warm Codex app-server processes and reuses them across Runs instead of spawning a CLI process for every Run.
+- Workspace: a local filesystem directory used as the working root for a Thread.
+- Thread: a resumable work context in one Harness, indexed by Opencozy and backed by a Harness-owned thread identifier when the Harness provides one.
+- Run: one submitted unit of work within a Thread.
+- File Asset: an immutable copy of a local file that the Harness explicitly shares with the user. Opencozy stores its bytes, title, description, format, and searchable extracted text in a Device-owned library independent of Thread visibility. Closing, compacting, or deleting its source Thread does not delete the Asset.
+- OpenWrite Record Preview: a selected original from the live OpenWrite household records API, shared through the same Asset Preview. OpenWrite remains the record manager; Opencozy stores a checksum-verified snapshot with source record ID, revision, status, reason, and capture time. Snapshot status is historical; current record queries check OpenWrite again. The old Jarvis vault is not a live mirror.
+- Asset Preview: a durable assistant-to-user Timeline card that opens a File Asset in the mobile viewer. The Harness can publish a new Asset, search the owning Device's library across open and closed Threads, and show an existing Asset in a later Run. Previewing supports text/code, HTML, PDF, images, video, and audio; unsupported formats remain downloadable. PDFs and images support pinch/double-tap zoom and bounded panning, with PDF page swipes at fit width. Header swipes dismiss previews; text and HTML offer reading-size controls. Multiple assets in one response appear as a compact File Stack that opens a full-screen list. Individual cards, the list, and viewers can share original files through the native system share sheet; a stack shares all its files together.
+- File Stack: a presentation group of distinct File Assets shared in one Run and agent branch between user messages. It preserves the first card’s Timeline position and opens a full-screen list; it is reconstructed from saved Events without changing their history or creating a new asset.
+- Message Attachment: a file uploaded to a Device-local Thread and selected alongside a new Run or Steering Message. The backend keeps the original bytes outside the Workspace, records attachment metadata in the Timeline, and resolves opaque attachment ids before passing files to the Harness Adapter. Supported images become native image input; other files are supplied as readable local file references. Up to 10 files of 20 MiB each may accompany a message, including a message containing only files. Uploaded draft files and sent files are retained with local application data; removing a draft selection does not delete a previously sent file.
+- Timeline Event: a normalized, append-only observation about a Run or Thread, cached by Opencozy for mobile rendering and reconnect recovery.
+- Approval Request: a Harness-originated request for user permission, including an explicit agent request through the native `liteharness.request_approval` tool. Opencozy surfaces it, records the decision, and passes the decision back to the Harness without inventing a second approval policy.
+- Trusted Device: any device that can reach Opencozy through the configured Tailscale origin. Trusted devices have full owner access to non-Thread global data in v1.
+- Device: one PWA browser profile or install, identified by a stable Opencozy device id stored in browser local storage and sent to the backend on HTTP and websocket requests.
+- Device-local Thread: a Thread owned by the Device that created it. Thread lists, state snapshots, timeline reads, Run submission, steering, input responses, rename, close, compaction, and Thread preview attachment are visible only to that owning Device.
+- Mobile Control Plane: the React PWA surface used to create Threads, submit Runs, observe timeline events, and answer approval requests. Native semantic layout elements provide a directly owned mobile viewport and Timeline scroller.
+- Mobile Harness Chrome: the black, iOS-feeling mobile shell for Harness control. It is terminal-adjacent through restraint, system mono type, safe-area respect, direct controls, a stable header, and a stable bottom composer. It must not fake a terminal with prompt glyphs, green-console styling, or decorative command rows.
+- Harness Turn: the mobile presentation of one submitted Run plus its resulting Harness Timeline Events. The submitted prompt is recorded as a first-class Timeline Event so the UI can render a durable conversation without inferring user intent from Harness output.
+- Execution Profile: a Opencozy-owned, per-Thread selection that resolves the Codex main model, reasoning effort, persistent Fast setting, and role-specific subagent guidance without exposing app-server configuration to the PWA.
+- Agent Timeline: the mobile projection of one Codex subagent thread inside its owning Opencozy Thread. Child work remains in the parent Thread's append-only Timeline with normalized agent and parent ids, while the PWA can switch between the Main line and nested Agent Timelines.
+- Steering Message: a user-authored instruction sent while a Run is active. It belongs to the active Harness Turn, is recorded as a `run.steered` Timeline Event with Harness Output Type `user-prompt`, and is delivered through the Harness Adapter rather than starting a second Run.
+- Owner WhatsApp Tool: the outbound-only Codex-native `whatsapp.send_message({message})` tool backed by the local Hermes WhatsApp bridge. Opencozy fixes the owner chat in backend configuration; the Harness cannot choose a recipient.
+- Header Thread Tabs: the compact Device-local Thread selector inside the stable mobile header. Each tab exposes a menu for workspace inspection, renaming, and closing the Thread.
+- Closed Thread: a Device-local Thread hidden from the open tab list, with its Harness context and Timeline preserved. Closing is reversible through Undo or the Recently closed list. Bulk close skips Threads with active Runs; stopping work remains a separate explicit action.
+- Agent Message: either an inspectable Codex collaboration message between agent branches, or user-authored steering directed to a verified child with an active Codex turn in the current Run. Directed messages retain their own branch Timeline and composer draft; they do not start a second Main Run or reopen a finished child.
+- Harness Output Type: the renderer-facing type for a Timeline Event or Opencozy shell state. The standard set is `user-prompt`, `assistant-message`, `reasoning`, `execution`, `file-change`, `file-asset`, `tool-call`, `web-search`, `subagent`, `todo-list`, `approval`, `lifecycle`, `compaction`, `error`, and `liteharness-waiting`.
+- Stable Output Key: a Harness Adapter-provided key that lets Opencozy merge updated events into one durable render entry. Command executions, tool calls, todo lists, and other in-progress Harness items should reuse one stable key for started, updated, and completed observations.
+- Event Transcript: a synchronous, deterministic Opencozy projection of a normalized Codex event into mobile-first presentation fields: a one-line action, a one-line result summary, and safe event HTML for each line.
+- Opencozy Model: the optional model integration used for manually requested Context Compaction. It is never called while streaming or persisting Codex events.
+- Opencozy System Configs: Opencozy-owned hidden instructions installed in the Harness thread's developer instructions to shape presentation without changing user messages or repeating the instructions on every turn.
+- Context Compaction: a Opencozy-owned replacement of older visible Timeline Events with a compact `thread.compacted` handoff event so long Threads can continue without sending the whole old timeline to the next Harness Run.
+- Compaction Handoff: the structured summary from the latest Context Compaction. Opencozy shadow-adds it to the next Harness request beside the latest user message, while the stored and displayed user prompt remains unchanged.
+- Project Preview: a per-Thread mobile surface for viewing a Wired Preview from a Trusted Device.
+- Project Directory: the user-confirmed Workspace-like directory on the Harness host that contains the developer app for a Wired Preview.
+- Project Search Brief: a user-provided description used by a visible Preview Wiring Thread to find the intended Project Directory.
+- Wired Preview: a user-named backend-persisted preview configuration for a Project Directory, including the target frontend and required local dependency services, reusable across Threads and Trusted Devices.
+- Preview Wiring Thread: a visible Opencozy Thread launched to create, update, or recover a Wired Preview. It asks the user to confirm the Project Directory before submitting a Preview Manifest.
+- Preview Target: the target frontend entry point for a Wired Preview.
+- Preview Dependency Service: a local service the Preview Target needs to work correctly.
+- Browser-Direct Preview Service: a Preview Dependency Service that must be reachable directly by the Trusted Device browser.
+- Preview Published Origin: the private browser-facing origin a Trusted Device opens to view a Wired Preview. It records provider, source, HTTPS port, local proxy port, published URL, status, and failure message.
+- Preview Publisher: the backend component that creates, updates, and removes Preview Published Origins.
+- Local Preview Proxy: a localhost-only backend proxy owned by the Preview Publisher that keeps the published preview root-mounted while forwarding to the developer app with local request headers.
+- Preview Manifest: structured preview wiring submitted by a Preview Wiring Thread for user approval before Opencozy persists or publishes a Wired Preview.
+- Preview Command: a structured command hint for starting or repairing a Wired Preview; Opencozy stores it as recovery metadata and does not supervise arbitrary app processes.
+- Preview State: the current readiness of a Wired Preview and the likely next action, such as attach, publish, review a manifest, or open a wiring thread.
 
-**Enrolled Device**:
-A user-controlled phone, tablet, or computer explicitly admitted to the private connectivity boundary for OpenCozy. An Enrolled Device may reach OpenCozy away from the LAN, but it is not an anonymous browser or a public visitor.
-_Avoid_: public client, internet user
+## Product Boundaries
 
-**Private WAN Access**:
-Remote OpenCozy access for Enrolled Devices through an authenticated device-network boundary. Private WAN Access extends the trusted-device model beyond the LAN, but it is not public internet exposure and does not make OpenCozy safe to expose without that boundary. The first Private WAN Access trajectory should use device-network enrollment rather than putting OpenCozy behind a public URL with identity login.
-_Avoid_: public URL, internet deployment
+- Opencozy is the renamed LiteHarness mobile control plane and supersedes the former Opencozy codebase. It is independent from OpenWrite.
+- Opencozy is single-user software in v1.
+- Opencozy uses Tailscale as the network trust boundary and has no app-level login in v1.
+- Threads are Device-local in v1. Trusted Devices do not list, open, steer, rename, close, or attach previews to Threads created from another Device.
+- File Assets inherit their publishing Thread's Device ownership. Their library remains searchable from other Threads on that Device. Sharing is explicit: a local path in a reply is not a publication. Inbound Message Attachments are not automatically published; the Harness can publish one when asked to share or save it. Search covers names, titles, descriptions, and extracted text for text/HTML/PDF; media search uses metadata and the description supplied at publication.
+- Asset bytes are served through bounded, Device-authorized read grants with range support. HTML previews run in an isolated sandbox without scripts, network access, or app-origin privileges. Native media rendering depends on the browser's supported codecs. Asset publication retains an independent snapshot even if the original local file is edited or removed.
+- Opencozy does not scrape terminal UIs or emulate Harness internals.
+- Terminal or PTY views may exist later as fallback/debug surfaces, not as the primary integration boundary.
+- Opencozy supports only Codex. It creates a Thread, submits a Run, streams Timeline Events into the mobile UI, shows final status, and resumes with a follow-up prompt.
+- Active Run input is steering, not Run submission. The bottom composer remains available while a Thread is running, and the backend routes the message to the active Harness through the adapter so the Harness can receive it at the correct point in its tool-call timeline.
+- The primary mobile surface is not a dashboard. It is a turn-oriented control shell with header Thread Tabs, one timeline scroll owner, and a bottom composer.
+- Header Thread Tabs expose closing through the tab menu. Manage tabs supports individual and bulk closing of idle Threads, and closed Threads restore without losing history. Thread selection and prompt drafts survive reload on the same Device. Switching Threads or Agent Timelines preserves their reading positions.
+- Stop and close all is a separate, confirmed tab action. It waits for active Run interruption before closing eligible Threads; work that is still stopping or unreachable remains open.
+- Agent navigation stays in the header. Its compact status and lineage controls remain reachable while reading, and a collapsed Agent Message transcript exposes coordination instructions and send results. The composer names its recipient and only enables child steering while both the parent Run and child turn are active.
+- The mobile viewport follows the visible viewport and keyboard. Enter inserts a newline in the message and workspace composers; submission uses only the onscreen submit button. The composer owns its send control; Hide keyboard dismisses input without interrupting a Run. Escape dismisses the frontmost surface or keyboard before it can interrupt work.
+- Opencozy uses native semantic layout elements and owns routing, viewport behavior, keyboard behavior, timeline semantics, and visual restraint (ADR 0016).
+- The PWA renders Timeline Events through Harness Output Types, not raw event names. Raw event names remain useful for storage and adapter diagnostics, while output types drive grouping, update merging, and visual treatment.
+- The only Execution Profiles are Balance (`default`, initially selected), Speed (`speed`), and Power (`power`). All use `gpt-6-astra`. Main/subagent reasoning is high/high for Balance, medium/low for Speed, and max/xhigh for Power. The profile governs every subagent role, including nested work, when delegation is permitted. Session policy and tool/model restrictions take precedence; profile settings do not authorize delegation.
+- The New tab page refreshes the main and subagent settings supplied by the Harness Adapter on each opening. Creation waits for fresh settings; a failed refresh offers retry. Expand Model & settings to choose a profile and Fast mode, then select a recent directory or find a workspace by path/name. Selecting a directory creates an idle Thread with those settings. Discovery stays separate from existing Run activity; dismissing the page cancels its browser request and ignores late results.
+- Fast mode belongs to backend Thread state. Composer changes persist through the Thread API and apply to subsequent Codex turns, reconnects, and resumed Harness contexts.
+- Retired `astra` profile IDs resolve to Balance without rewriting stored history. Main and subagent model/effort settings come only from profiles; utility model environment settings do not override them. Balance and Speed default to Fast, Power to Standard; saved per-Thread Fast preferences still apply.
+- The Codex Adapter publishes the first assistant-message delta immediately, throttles subsequent delta snapshots, and completes the same Stable Output Key with the final item.
+- Follow-up Runs append only new input to the same Harness thread. The adapter pins each main thread to its own app-server connection and avoids resuming it again while its configuration is unchanged. Idle threads retain writer ownership, so their connections cannot be lent to other main threads. Failed or evicted connections must finish closing before another process resumes their thread. At most two idle connections are retained; active Threads can run concurrently. Cold recovery resumes the persisted Harness history by id without supplying replacement messages or tool definitions. Opencozy does not rebuild previous model messages from Timeline Events.
+- Codex child-thread items carry normalized agent lineage in Timeline Event payloads. The PWA uses that lineage to inspect nested Agent Timelines and return to Main without receiving raw app-server thread objects.
+- The Codex Adapter advertises the Owner WhatsApp Tool as an app-server dynamic tool when it creates a Harness Thread, handles app-server tool requests inside the adapter boundary, and returns explicit success or bridge failure content to Codex. The bridge stays loopback-only, the recipient is backend-configured, and no inbound WhatsApp or PWA messaging surface exists.
+- Startup lifecycle events such as `thread.started` and `run.started` are stored for diagnostics but suppressed from the primary mobile timeline.
+- `liteharness-waiting` is transient shell feedback, rendered as an inline Working row at the end of the timeline flow while a Thread is running. It is not appended to the durable timeline scrollback.
+- Thread and Run status are backend-owned. The PWA applies websocket events as its live path and fetches a full Thread state snapshot only on initial load or recovery after a stale socket, focus, online, or visibility transition. Recovery requests are coalesced.
+- Failed startup and Timeline reads retry after the backend returns, even if websocket heartbeats are already healthy. A successful Run submission or input response stays accepted when its follow-up snapshot fails; recovery retries the read without restoring or resending the submitted message.
+- A backend restart never closes a Thread. Interrupted Runs release the preserved Thread back to idle without adding timeline noise when their local owner process has exited, or when its lease expires if the owner cannot be identified. Websocket heartbeats reconcile those leases and carry current Thread status, so a reconnected tab remains usable even when it reconnects before lease expiry. Connection errors clear after successful recovery; drafts and Harness context remain attached to the same Thread.
+- Structured Harness Output Types render as compact disclosure rows in a thread-style rail: bullet points mark each reasoning section, the collapsed row shows the Event Transcript action/result or grouped distribution/current-event summary, and expansion reveals secondary detail such as full command output, file lists, tool errors, or todo items.
+- Normalized Codex events are persisted with deterministic Event Transcripts. The transcript drives mobile summaries, while command output, file lists, tool errors, and the normalized fields needed for expansion remain available without duplicating full app-server items in every event.
+- Event Transcript HTML is a constrained mobile event subset. It supports colored spans, code, and small inline SVG graphics through approved tags/classes; arbitrary HTML, scripts, styles, external media, and event handlers are not part of the contract.
+- Harness/user text surfaces render through the frontend Pretext wrapper, which emits a safe Pretext subset for paragraphs, lists, quotes, code, and explicit web/mail links. Raw HTML is always escaped before React inserts it.
+- Harness assistant replies use stable thread developer instructions to be concise, mobile-friendly HTML fragments that retain requested detail, material uncertainty, and verification evidence. Short paragraphs are the default; structured HTML and small inline SVG are used when they clarify the result. Final replies stand alone and distinguish queued actions from completed and verified work. Interim/progress/non-final replies should stay low-profile: short, muted gray, and smaller than final answers. The frontend renders them through a separate sanitized Harness HTML renderer that supports semantic HTML, compact tables/details, code, constrained semantic color, and small inline SVG, plus bounded embedded PNG images that require no external request, while stripping scripts, event handlers, unsafe links, layout-breaking CSS, and arbitrary inline palettes.
+- Context Compaction happens from normalized Timeline Events, not raw Harness internals. It protects the start, latest user-authored Timeline Event, and recent tail of a Thread, summarizes older middle history into a visible `compaction` Timeline Event, hides the summarized events from the primary timeline except for that latest human message, and sends the latest Compaction Handoff only through the hidden Harness request. The handoff preserves the immediately preceding user and assistant messages so short replies such as “yes” retain their conversational referent after the Harness Thread resets.
+- Compaction Handoffs distinguish completed work from plans and progress, preserve the ongoing objective across steering, and retain the scope of established approvals without broadening it. Deterministic fallback summaries label assistant statements as unverified, include user steering, and never invent project constraints or infer completion from progress text.
+- Opencozy Context Compaction is explicit. Sending a new message never triggers a Opencozy compaction or resets a healthy Harness thread based on visible Timeline size. The Harness still owns its model context window and native compaction; deliberate compaction, configuration changes, and recovery from missing Harness history can establish a new cache prefix.
+- A Project Preview may attach one Wired Preview to one Thread. The attachment belongs to backend Thread state, not device-local browser storage.
+- Wired Previews are backend-owned global data. Any Trusted Device can search, rename, publish, or delete them, and can attach them to that Device's own Threads.
+- A Preview Wiring Thread may start from a Project Search Brief or an existing Wired Preview, but it must keep work visible as a normal Opencozy Thread and submit a Preview Manifest for approval before reusable preview data changes.
+- The first Preview Publisher uses Tailscale Serve plus a Local Preview Proxy for private HTTPS origins. Direct LAN target URLs remain usable when the Trusted Device browser can reach them, but host-local URLs such as `127.0.0.1` require a Preview Published Origin for mobile access.
+- Preview Dependency Services remain host-local by default. Browser-Direct Preview Services are published explicitly and individually.
+- Opening Project Preview shows the attached Wired Preview frame when it is openable. Otherwise it shows searchable Wired Previews, pending manifests, and a wire-new action.
 
-**Developer OpenCozy Origin**:
-The Vite developer server acting as the single browser-facing OpenCozy Origin during direct LAN and Private WAN Access use. Because OpenCozy is a developer-mode tool, this origin may remain Vite-based as long as the backend stays localhost-only behind it for WAN access and accepted hostnames are explicit.
-_Avoid_: production server, hardened gateway
+## Explicit action approvals
 
-**Network-Agnostic PWA**:
-The OpenCozy frontend should behave the same whether the OpenCozy Origin is reached on LAN or through Private WAN Access. Network reachability is configuration and documentation, not a separate in-app mode.
-_Avoid_: remote mode UI, LAN mode UI
+New Harness Threads receive `liteharness.request_approval({ action })`. The adapter turns the active main agent's tool call into an Approval Request and leaves the call pending for the existing device-owned approval endpoint. The PWA shows Yes/No; the tool returns the decision and exact action, without executing it. Rejection, failed delivery, canceled Runs, and missing responses never grant permission. Full-access execution can bypass native command approvals, so `require_escalated` alone is not a reliable user-consent prompt in this installation.
 
-**Vendor-Neutral LAN Path**:
-The no-vendor access path where a phone or tablet reaches the Codex Host directly on the same trusted local network, without requiring a third-party overlay network or hosted service. This path must remain available even when Private WAN Access docs or helpers exist.
-_Avoid_: legacy mode, fallback mode
-
-**OpenCozy Origin**:
-The single browser-facing origin that serves the PWA and proxies OpenCozy API and WebSocket traffic to the backend. In Private WAN Access mode, Enrolled Devices should reach only this origin; the backend should remain bound to localhost behind it.
-_Avoid_: separate backend URL, exposed API port
-
-**OpenCozy Session**:
-An active PTY process started by OpenCozy to run Codex and stream terminal I/O to the PWA.
-_Avoid_: shell session, terminal session
-
-**OpenCozy Session Name**:
-Shared backend metadata for an OpenCozy Session, shown by every device that has that Session open in a Session Tab. The backend should source it from the linked Codex Session title unless the user explicitly renames the OpenCozy Session. A new OpenCozy Session may link to a Codex Session only after the PTY submits a non-empty first prompt and Codex records a matching `first_user_message`; it must not adopt the globally latest Codex thread for the cwd. A resumed OpenCozy Session may link through an explicit device-scoped Codex thread id, the visible Resume Picker selection, or exactly one updated Codex rollout containing a post-resume user message submitted through that OpenCozy PTY.
-_Avoid_: tab label preference, device title
-
-**Session Tab**:
-A device-local PWA attachment to one active OpenCozy Session. Session Tabs keep their terminal panes mounted while inactive so their sockets can keep receiving PTY output, but switching tabs must not create, close, or resume Codex work by itself. The backend remains the owner of OpenCozy Session lifecycle; closing a Session Tab is an explicit request to close that OpenCozy Session.
-_Avoid_: Codex conversation tab, history item
-
-**Session Tab Preferences**:
-Per-device PWA storage for which Session Tabs are open and which Session Tab is active. These preferences must never use global "last session" keys and must never be inferred from another device's latest OpenCozy Session. They can reference shared OpenCozy Sessions by id, but the open-tab list and active-tab choice belong only to the current device. A backend OpenCozy Session list may include another device's OpenCozy Session only when this device already has that session id in its Session Tab Preferences.
-_Avoid_: global last session, host session state
-
-**Codex Session**:
-A conversation recorded and resumed by the Codex CLI itself.
-_Avoid_: OpenCozy session
-
-**Resume Picker**:
-The interactive `codex resume` UI owned by the Codex CLI.
-_Avoid_: session manager
-
-**Mobile Terminal Surface**:
-The phone-first terminal UI that renders and controls a Codex-owned PTY. It should preserve terminal capabilities because Codex assumes it is running in a terminal, but active text entry should feel native on mobile: visible insertion point, predictable selection, paste, and keyboard-driven caret movement. Selection should work across output, prompts, and the active input line. Starting text selection during streaming should pause auto-scroll just like manual scrolling, and auto-scroll should remain paused after selection ends until the user explicitly returns to bottom with a floating down-chevron control. The floating return-to-bottom control should appear whenever the viewport is away from bottom, not only while output is streaming. Active prompt editing may be single-line in terminal semantics, but long text should wrap visually and support iOS-like caret movement across wrapped visual lines. Keyboard Return submits by default. Taps in the input zone should focus the iOS input bridge; taps elsewhere should remain available for terminal interaction such as selecting Codex picker or menu items through terminal-native mechanisms, not Codex-specific screen parsing. Arrow and Enter controls should remain visible across native keyboard focus states, without an extra explanatory status hint. The input zone should not need a special visual hint; the terminal-rendered caret should signal active editing. Copied text should be normalized for readability by cleaning up terminal layout artifacts such as soft wraps and cell padding, while keeping selected content otherwise intact. Paste should behave like ordinary iOS text input through the input bridge, without a special OpenCozy paste button or confirmation prompt. Terminal-rendered state remains the source of truth; iOS-native input is an input method and gesture model, not the visible prompt owner. It is still scoped to Codex rather than becoming a general-purpose remote shell.
-_Avoid_: chat renderer, Codex transcript renderer
-
-**Mobile Xterm Fork**:
-An OpenCozy-maintained xterm variant used only by the Mobile Terminal Surface when stock xterm's public API is too desktop-oriented for phone-first interaction. It should live inside this repo as its own workspace package, keep xterm's terminal emulator core, and expose narrow mobile hooks for touch hit testing, selection, composition/input, cursor movement, viewport state, and renderer feedback. Desktop terminal views should stay on stock xterm unless they need the same mobile interaction hooks.
-_Avoid_: app overlay hack, custom terminal engine
-
-**Mobile Terminal Preferences**:
-Per-device app settings that tune the Mobile Terminal Surface without changing Codex conversation state. The first preferences are iOS autocorrect and autocapitalization for the native input bridge, both enabled by default and independently disableable.
-_Avoid_: session settings, Codex settings
-
-**Project Preview**:
-A per-session OpenCozy surface for viewing a Wired Preview from an Enrolled Device.
-_Avoid_: LAN app shortcut, deployment, public preview
-
-**Project Directory**:
-The user-confirmed directory on the Codex Host that contains the developer app for a Wired Preview.
-_Avoid_: inferred repo, global workspace
-
-**Project Search Brief**:
-A user-provided description of the project name or details used to find a Project Directory.
-_Avoid_: guessed path, global recency
-
-**Wired Preview**:
-A user-named backend-persisted preview configuration for a Project Directory, including the target frontend and its required local dependency services, that can be reused from any Enrolled Device.
-_Avoid_: device preview URL, tab-local preview
-
-**Preview Wiring Session**:
-A user-visible OpenCozy Session launched for a Project Directory to create or update a Wired Preview.
-_Avoid_: hidden agent work, deterministic project scanner
-
-**Preview Target**:
-The target frontend entry point for a Wired Preview.
-_Avoid_: exposed app port, arbitrary URL
-
-**Preview Dependency Service**:
-A local service the Preview Target needs in order to work correctly.
-_Avoid_: exposed backend port, public service
-
-**Preview Published Origin**:
-The private browser-facing origin an Enrolled Device opens to view a Wired Preview. It is backend-owned state on the Wired Preview and records provider, source, HTTPS port, local proxy port when applicable, published URL, status, and any failure message.
-_Avoid_: public URL, path shortcut
-
-**Preview Publisher**:
-The OpenCozy backend component that creates, updates, and removes Preview Published Origins for Wired Previews.
-_Avoid_: manual tunnel command, agent-owned tunnel
-
-**Local Preview Proxy**:
-A localhost-only OpenCozy proxy owned by the Preview Publisher that lets a Preview Published Origin stay root-mounted while forwarding to the developer app with local request headers.
-_Avoid_: path-mounted proxy, app config patch
-
-**Preview Manifest**:
-Structured preview wiring produced for user approval before OpenCozy persists or publishes a Wired Preview.
-_Avoid_: silent agent registration, free-form instructions
-
-**Preview Command**:
-A structured command hint needed to start or maintain part of a Wired Preview.
-_Avoid_: managed process, OpenCozy service
-
-**Preview State**:
-The current readiness of a Wired Preview and the likely next action needed from the user or Preview Wiring Session.
-_Avoid_: hidden health code, deployment status
-
-**Browser-Direct Preview Service**:
-A Preview Dependency Service that must be reachable directly by the Enrolled Device browser for the app to work.
-_Avoid_: accidental exposed backend, hidden dependency
-
-## Relationships
-
-- A **Codex Host** runs zero or more **OpenCozy Sessions**.
-- An **Enrolled Device** may reach the **Codex Host** through **Private WAN Access**.
-- **Private WAN Access** preserves the trusted-device boundary; it does not authorize anonymous or public clients.
-- The **Vendor-Neutral LAN Path** remains supported. Tailscale may be the recommended first Private WAN Access provider, but OpenCozy must not require it for direct LAN use.
-- In Private WAN Access mode, Enrolled Devices should use one **OpenCozy Origin**. The backend should stay localhost-only behind that origin rather than being directly reachable as a second WAN endpoint.
-- The first Tailscale-based Private WAN Access path may use the **Developer OpenCozy Origin** rather than a separate production-style server.
-- Tailscale-based Private WAN Access should set the backend host to `127.0.0.1`; LAN development may keep `0.0.0.0` for same-network browser access.
-- The first Tailscale-based **Developer OpenCozy Origin** may bind to `0.0.0.0` for setup simplicity, but accepted hostnames must be explicit through `OPENCOZY_ALLOWED_HOSTS`.
-- Recommended Tailscale-based Private WAN Access must use HTTPS for the browser-facing **OpenCozy Origin**, preferably by placing Tailscale Serve in front of the local Vite service. Plain HTTP remains acceptable for the **Vendor-Neutral LAN Path**.
-- Tailscale Serve is the recommended Tailscale exposure mechanism because it is tailnet-private. Tailscale Funnel is unsupported for OpenCozy until OpenCozy has app-level authentication and internet-facing hardening.
-- Tailscale-enrolled devices have the same OpenCozy trust level as LAN devices: any Enrolled Device that can reach the **OpenCozy Origin** can fully control Codex through OpenCozy.
-- Tailscale identity headers are not part of first-version OpenCozy authorization. Tailnet enrollment is the trust boundary.
-- First-version Private WAN Access should rely on explicit host/origin allowlisting as the OpenCozy-side guardrail. It should not add a shared bearer token unless OpenCozy later introduces app-level authentication.
-- The backend should enforce the same explicit host/origin allowlist when configured, including WebSocket upgrades, even when the recommended Tailscale setup keeps the backend bound to localhost.
-- OpenCozy should remain a **Network-Agnostic PWA**; LAN and Tailscale reachability should not create separate UX modes.
-- An **OpenCozy Session** runs exactly one Codex CLI process.
-- A **Session Tab** attaches one device to one **OpenCozy Session**.
-- A device may have multiple **Session Tabs** active at once; inactive tabs stay mounted and connected.
-- OpenCozy Session lists used to restore **Session Tabs** are device-scoped. A device must not auto-open another device's sessions just because they were updated more recently.
-- **Session Tab Preferences** are device-local and are the only source for restoring open tabs and the active tab after reload. Backend recency is never a restore source.
-- **Session Tab Preferences** store OpenCozy Session ids only. Tab text is always the shared **OpenCozy Session Name** returned by the backend summary.
-- A **Codex Session** belongs to Codex, not OpenCozy.
-- A **Mobile Terminal Surface** controls an **OpenCozy Session** without replacing Codex's terminal UI.
-- A **Mobile Terminal Surface** may depend on the **Mobile Xterm Fork** rather than reaching into stock xterm private internals from app code.
-- **Mobile Terminal Preferences** belong to the device, not to an **OpenCozy Session** or **Codex Session**.
-- A **Project Preview** may attach an **OpenCozy Session** or **Session Tab** to one **Wired Preview**.
-- The active **Wired Preview** attachment belongs to the shared **OpenCozy Session**, not to device-local **Session Tab Preferences**.
-- Closing an **OpenCozy Session** or **Session Tab** should not detach, delete, or unpublish a **Wired Preview**; detach is an explicit action in preview settings.
-- A **Wired Preview** starts from a user-confirmed **Project Directory** and is stored by the OpenCozy backend, not in device-local browser storage.
-- **Wired Previews** are globally shared OpenCozy data: any **Enrolled Device** can search and attach to them, while **Session Tab Preferences** remain device-local.
-- A **Wired Preview** should have a user-facing name.
-- **Wired Preview** search should show all matching records, including stale or unpublished ones, with explanatory **Preview State** labels such as Ready, Needs start, Needs publish, Unreachable, or Manifest pending approval.
-- A **Preview Manifest** may propose a **Wired Preview** name, but the user should confirm or edit the name before approval creates reusable global preview data.
-- A **Preview Wiring Session** may start from a **Project Search Brief**, search the Codex Host for candidate project directories, and ask the user to confirm the intended **Project Directory** before creating or updating a **Wired Preview**.
-- After a **Project Directory** is confirmed, a **Preview Wiring Session** may inspect it and run project commands to identify or start a **Preview Target**, but the session must remain visible to the user and must not infer a project from unrelated machine-wide recency.
-- Preview wiring launch instructions must enter Codex as a process initial prompt argument that points to a local prompt file; OpenCozy should not queue or auto-type preview prompts through the WebSocket terminal input path after the PTY starts.
-- For Wired Preview updates and recovery, OpenCozy should start a new visible **Preview Wiring Session** and reuse the backend **Wired Preview** data as prompt-file context, rather than injecting instructions into an already-running PTY.
-- A **Wired Preview** may store the **OpenCozy Session** id of its most recent **Preview Wiring Session** so update and recovery actions can return to visible wiring context instead of starting hidden work.
-- A **Preview Wiring Session** may submit a **Preview Manifest** directly to the local OpenCozy backend, but OpenCozy should persist or publish it only after user approval.
-- **Preview Manifest** approval is required for material changes to a **Wired Preview**, including the Preview Target, dependency services, browser-direct services, commands, and published origins; unchanged resubmissions may be treated as already approved.
-- **Preview Commands** may be stored as metadata on a **Wired Preview**, but OpenCozy should not supervise arbitrary app processes in the first Project Preview implementation.
-- **Preview State** should explain likely recovery actions, such as starting the preview with stored **Preview Commands**, publishing the approved target, or returning to the **Preview Wiring Session**.
-- A start/recovery action for **Preview Commands** should open a visible **Preview Wiring Session** with the commands ready as context, rather than running commands invisibly from the Project Preview UI.
-- A **Project Directory** may have multiple **Wired Previews**.
-- A **Wired Preview** has one **Preview Target**, zero or more **Preview Dependency Services**, and may have one **Preview Published Origin**.
-- By default, only the **Preview Target** gets a **Preview Published Origin**; **Preview Dependency Services** should stay local to the Codex Host behind the app's normal server-side or proxy paths.
-- A **Preview Dependency Service** may become a **Browser-Direct Preview Service** only when the app architecture requires the Enrolled Device browser to call it directly.
-- Each **Browser-Direct Preview Service** should receive its own port-based private HTTPS **Preview Published Origin** rather than being path-mounted under the frontend origin.
-- Browser-direct dependency publishing is explicit and limited to services marked `browserDirect`; ordinary **Preview Dependency Services** remain host-local and should not be published by bulk dependency actions.
-- The **Preview Publisher** owns durable publish and unpublish state for **Preview Published Origins**; a **Preview Wiring Session** may identify what to publish, but it should not be the durable owner of tunnel commands.
-- The first **Preview Publisher** implementation may use Tailscale Serve for private HTTPS origins, while the **Vendor-Neutral LAN Path** remains available through manually reachable preview URLs until a LAN publisher is explicitly designed.
-- A **Preview Target** should stay inside the trusted private boundary and should not require exposing arbitrary developer app ports directly to the public internet.
-- The first **Preview Published Origin** should be private, HTTPS, and port-based so the developer app owns `/`; path-mounted previews are rejected because they can conflict with app routes, assets, auth callbacks, cookies, redirects, and development server hot reload paths.
-- The first Tailscale Serve **Preview Publisher** publishes the **Preview Target** through `tailscale serve --bg --https=<published-port> http://127.0.0.1:<local-proxy-port>/`, where the **Local Preview Proxy** forwards to the target origin with local request headers. It unpublishes explicitly with `tailscale serve --https=<published-port> off`.
-- **Preview Published Origin** state distinguishes the browser-facing HTTPS port from the **Local Preview Proxy** port. If a local proxy port is occupied, OpenCozy should allocate another port from the configured proxy range and update the Tailscale Serve target rather than requiring developer app configuration changes.
-- Publishing failures, including missing Tailscale daemon access, missing Tailscale DNS, offline node state, or unavailable HTTPS Serve certificates, should be reported as **Preview Published Origin** failure state rather than hidden terminal output.
-- Opening **Project Preview** should show the attached **Wired Preview** first when the active **OpenCozy Session** has one; otherwise it should show searchable **Wired Previews** and a wire-new action together.
-- The wire-new action should also remain available when a **Wired Preview** search has no results.
-
-## Interface direction
-
-OpenCozy should feel mobile-native and terminal-adjacent without pretending every control is a terminal command. Prefer simple, powerful UI: restrained surfaces, clear hierarchy, compact spacing, direct labels, and plain action rows with subtle separators. Avoid fake green terminal styling, decorative dollar-sign or prompt gimmicks, card-like option buttons, repetitive explanatory copy, and generic marketing-style empty states. The app can use the owl icon and OpenCozy name for identity, but main task screens should prioritize the current workflow over repeated branding.
-
-The concrete UX guide lives in [docs/ux-guide.md](docs/ux-guide.md). New frontend work should follow that guide for pages, tabs, floating controls, prompts, modals, forms, and empty states.
-
-## Example dialogue
-
-> **Dev:** "Should OpenCozy show every old Codex conversation?"
-> **Domain expert:** "Only if Codex exposes a stable list. Otherwise OpenCozy should start the Resume Picker and let Codex own that choice."
-
-## Flagged ambiguities
-
-- "session" can mean **OpenCozy Session** or **Codex Session**. OpenCozy owns active PTY processes; Codex owns conversation history.
-- "terminal" does not mean a general shell. OpenCozy starts Codex commands only.
-- "fork" means a small, maintained xterm-derived package with documented mobile patches, not a rewrite of terminal emulation.
-- "preview" means **Project Preview** for a developer app tied to a **Wired Preview**, not a deployment or public sharing feature.
+Existing Harness histories and dynamic tool sets remain intact on resume. Threads created before the tool was installed require a plain-text approval fallback; they must not reset history to acquire the new tool. The async question tool returned accepted without emitting any persisted input/approval event in this installation, so it is not a working UI fallback. See ADR 0018.
