@@ -2,65 +2,51 @@
   "name": "opencozy",
   "version": "0.1.0",
   "private": true,
-  "license": "MIT",
-  "description": "Secure PWA for running Codex from a phone or tablet.",
   "type": "module",
-  "packageManager": "npm@11.11.0",
-  "engines": {
-    "node": ">=22.12.0",
-    "npm": ">=10.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/kabuika96/opencozy.git"
-  },
-  "bugs": {
-    "url": "https://github.com/kabuika96/opencozy/issues"
-  },
-  "homepage": "https://github.com/kabuika96/opencozy#readme",
   "workspaces": [
     "backend",
-    "frontend",
-    "packages/mobile-xterm"
+    "frontend"
   ],
   "scripts": {
-    "deps": "npm install",
+    "build": "npm run build --workspaces",
+    "check": "npm run typecheck --workspaces && npm run test --workspaces && npm run build --workspaces",
     "dev": "node scripts/dev.mjs",
-    "dev:backend": "npm run dev -w backend",
-    "dev:backend:watch": "npm run dev:watch -w backend",
-    "dev:frontend": "npm run dev -w frontend",
-    "lan:start": "npm run services:start",
-    "lan:stop": "npm run services:stop",
-    "wan:start": "npm run services:start && npm run private-wan:serve",
-    "wan:stop": "npm run private-wan:stop; npm run services:stop",
-    "services:install": "scripts/opencozy-services.sh install",
-    "services:start": "scripts/opencozy-services.sh start",
-    "services:stop": "scripts/opencozy-services.sh stop",
-    "services:restart": "scripts/opencozy-services.sh restart",
-    "services:status": "scripts/opencozy-services.sh status",
+    "dev:backend": "npm run dev --workspace @opencozy/backend",
+    "dev:frontend": "npm run dev --workspace @opencozy/frontend",
+    "lint": "npm run typecheck --workspaces",
     "private-wan:doctor": "node scripts/private-wan.mjs doctor",
     "private-wan:serve": "node scripts/private-wan.mjs serve",
     "private-wan:status": "node scripts/private-wan.mjs status",
     "private-wan:stop": "node scripts/private-wan.mjs stop",
-    "tailscale-userspace:install": "scripts/opencozy-tailscale-userspace.sh install",
-    "tailscale-userspace:start": "scripts/opencozy-tailscale-userspace.sh start",
-    "tailscale-userspace:stop": "scripts/opencozy-tailscale-userspace.sh stop",
-    "tailscale-userspace:restart": "scripts/opencozy-tailscale-userspace.sh restart",
-    "tailscale-userspace:status": "scripts/opencozy-tailscale-userspace.sh status",
-    "build": "npm run build -w @opencozy/mobile-xterm && npm run build -w backend && npm run build -w frontend",
-    "check": "npm run lint && npm run test && npm run build",
-    "typecheck": "npm run typecheck -w @opencozy/mobile-xterm && npm run typecheck -w backend && npm run typecheck -w frontend",
-    "test": "npm run test -w @opencozy/mobile-xterm && npm run test -w backend && npm run test -w frontend",
-    "lint": "eslint backend/src frontend/src packages/mobile-xterm/src --max-warnings=0"
+    "services:install": "scripts/liteharness-services.sh install",
+    "services:logs": "scripts/liteharness-services.sh logs",
+    "services:restart": "scripts/liteharness-services.sh restart",
+    "services:start": "scripts/liteharness-services.sh start",
+    "services:status": "scripts/liteharness-services.sh status",
+    "services:stop": "scripts/liteharness-services.sh stop",
+    "tailscale-userspace:install": "scripts/liteharness-tailscale-userspace.sh install",
+    "tailscale-userspace:logs": "scripts/liteharness-tailscale-userspace.sh logs",
+    "tailscale-userspace:restart": "scripts/liteharness-tailscale-userspace.sh restart",
+    "tailscale-userspace:start": "scripts/liteharness-tailscale-userspace.sh start",
+    "tailscale-userspace:status": "scripts/liteharness-tailscale-userspace.sh status",
+    "tailscale-userspace:stop": "scripts/liteharness-tailscale-userspace.sh stop",
+    "test": "npm run test --workspaces",
+    "test:writer-isolation": "node --import tsx scripts/check-writer-isolation.ts",
+    "test:prompt-cache": "node --import tsx scripts/check-prompt-cache.ts",
+    "typecheck": "npm run typecheck --workspaces",
+    "wan:start": "npm run services:start && npm run private-wan:serve",
+    "wan:status": "npm run services:status && npm run private-wan:status",
+    "wan:stop": "npm run private-wan:stop && npm run services:stop",
+    "test:action-approval": "node --import tsx scripts/check-action-approval.ts",
+    "test:file-tools": "node --import tsx scripts/check-action-approval.ts --files"
   },
-  "devDependencies": {
-    "@eslint/js": "^9.39.1",
-    "eslint": "^9.39.1",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.4.24",
-    "globals": "^16.5.0",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.3",
-    "vitest": "^4.0.8"
-  }
+  "description": "A mobile-first, local-first control plane for Codex.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kabuika96/opencozy.git"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "MIT"
 }

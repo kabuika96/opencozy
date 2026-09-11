@@ -1,44 +1,20 @@
-# Contributing
+# Contributing to Opencozy
 
-Thanks for helping improve OpenCozy. This project is still early, so small pull requests with clear behavior are easiest to review.
+Use Node.js 24 and npm. Install with `npm ci`, copy `.env.example` to `.env`, and run `npm run dev`. See [README.md](README.md) for authentication and optional integrations.
 
-## Local Setup
+Read [CONTEXT.md](CONTEXT.md) and the relevant [architecture decisions](docs/adr/) before changing behavior or integration boundaries. Keep Codex protocol handling in the backend adapters and keep default services on localhost.
 
-```sh
-npm install
-npm run dev
-```
+Before submitting a pull request:
 
-The app runs at `http://127.0.0.1:5175`. Backend health is available at `http://127.0.0.1:8788/api/health`.
-
-## Before Opening a Pull Request
-
-Run the full check:
-
-```sh
+```bash
 npm run check
+npm run test:prompt-cache
 ```
 
-For focused work, these are also useful:
+The first command runs workspace type checks, tests, and builds. The second uses the pinned Codex binary with a local model stub; no model account or live model call is needed. For frontend interaction changes, also install Chromium with `npm exec --workspace frontend -- playwright install chromium` and run `npm run test:browser --workspace frontend`.
 
-```sh
-npm run typecheck
-npm run test
-npm run build
-npm run lint
-```
+Describe the problem, resulting behavior, and checks actually run. Add focused regression coverage for behavior changes. Never commit `.env`, credentials, databases, messages, uploaded files, personal machine configuration, or generated artifacts. Backend restarts interrupt active Runs; obtain approval before restarting a shared running instance.
 
-## Development Notes
+Use GitHub issues for public bug reports and feature proposals. Include reproduction steps and sanitized diagnostics. Local agent task notes may remain under ignored `.scratch/issues/`; they are not the public tracker. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
-- Keep local app state and Codex output out of commits. `data/`, `.env`, and `.scratch/` are ignored for this reason.
-- Preserve the Codex-only PTY boundary. OpenCozy should not become a general-purpose remote shell.
-- Add tests when changing session creation, WebSocket behavior, terminal input, local app shortcuts, or mobile interaction behavior.
-- Keep public docs free of personal paths, LAN hostnames, tokens, and machine-specific assumptions.
-
-## Pull Request Shape
-
-Include:
-
-- What changed.
-- How you verified it.
-- Any migration or local-data implications.
+Contributions are provided under the repository's MIT License.

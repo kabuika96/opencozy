@@ -1,19 +1,13 @@
-# Security Policy
+# Security
 
-OpenCozy is intended for trusted private access from devices you control: local development, trusted LAN use, and explicitly enrolled private-network devices. It does not include user accounts, authentication, authorization, or hardened internet-facing deployment controls.
+Opencozy is a single-owner local control plane for an agent that can read files and execute commands with the host user's permissions. It has no application login or multi-user authorization boundary. Device identifiers partition UI data; they are not authentication credentials.
 
-## Reporting a Vulnerability
+Keep backend and frontend listeners on loopback. For remote access, use Tailscale Serve with access restricted to your trusted devices and configure `LITEHARNESS_ALLOWED_HOSTS` to exact browser hostnames. Do not expose the app through Tailscale Funnel, public tunnels, or direct public listeners. Anyone who can reach the trusted app origin may exercise owner-level control.
 
-If the GitHub repository has private vulnerability reporting enabled, use that. Otherwise, open a minimal public issue that describes the affected area without including exploit details, private Codex output, tokens, or machine-specific paths.
+Keep `.env`, Codex authentication, application databases, attachments, and shared assets private. Back up local data separately. Optional integrations may access local records or send messages; configure only integrations you intend to use. Approval cards convey a user's decision but do not sandbox the agent or replace its execution permissions.
 
-## Current Security Boundaries
+## Reporting a vulnerability
 
-- Treat the backend as trusted-local software.
-- Do not expose the backend port or Vite dev server directly to the public internet.
-- Any device that can reach OpenCozy can start or resume Codex as the local OS user.
-- Private WAN access means a device-network boundary such as Tailscale Serve, not a public URL. Tailscale-enrolled devices have the same trust level as LAN devices.
-- For Tailscale Serve, bind the backend to `127.0.0.1`, expose only the frontend OpenCozy origin, require HTTPS, and set `OPENCOZY_ALLOWED_HOSTS` to the exact hostnames you will use.
-- Do not use Tailscale Funnel or any public internet tunnel for OpenCozy until the app has real authentication and internet-facing hardening.
-- `OPENCOZY_ALLOWED_HOSTS` is a guardrail for browser-facing host/origin checks, including WebSocket upgrades. It is not a replacement for a trusted network boundary.
-- Do not commit `.env`, `data/`, Codex session output, credentials, or personal logs.
-- Review terminal output before sharing screenshots or logs.
+Use GitHub's private vulnerability reporting on this repository when available: open the Security tab and choose “Report a vulnerability.” If the control is unavailable, open a minimal public issue requesting a private contact channel without including exploit details, credentials, private data, or a working exploit. Do not publish sensitive details until a private channel is established.
+
+Provide affected versions or commit IDs, a minimal reproduction, impact, and sanitized logs. There is no guaranteed response time or supported release window yet; fixes target the current default branch.

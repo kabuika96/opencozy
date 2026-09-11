@@ -1,35 +1,98 @@
-export type ShortcutProtocol = "http" | "https";
+export type HarnessType = "codex";
 
-export type AppShortcut = {
-  id: string;
-  name: string;
-  protocol: ShortcutProtocol;
-  host: string;
-  port: number;
+export type RunStatus = "queued" | "running" | "needs_approval" | "needs_input" | "completed" | "failed" | "canceled";
+export type ThreadStatus = "idle" | "running" | "needs_approval" | "needs_input" | "failed";
+
+export type HarnessCapabilities = {
+  approvals: boolean;
+  fastMode: boolean;
+  resume: boolean;
+  streaming: boolean;
+  userInput: boolean;
+};
+
+export type HarnessSummary = {
+  capabilities: HarnessCapabilities;
+  label: string;
+  type: HarnessType;
+};
+
+export type WorkspaceRecord = {
   path: string;
-  url: string;
-  createdAt: string;
   updatedAt: string;
 };
 
-export type AppShortcutInput = {
-  name: string;
-  protocol: ShortcutProtocol;
-  host: string;
-  port: number;
-  path: string;
+export type WorkspaceDiscovery = {
+  explanation: string;
+  title: string;
+  workspacePath: string;
+};
+
+export type ThreadRecord = {
+  createdAt: string;
+  fastMode: boolean;
+  harnessThreadId: string | null;
+  harnessType: HarnessType;
+  id: string;
+  profileId: string;
+  status: ThreadStatus;
+  title: string;
+  updatedAt: string;
+  wiredPreviewId: string | null;
+  workspacePath: string;
+};
+
+export type RunRecord = {
+  completedAt: string | null;
+  createdAt: string;
+  id: string;
+  prompt: string;
+  startedAt: string | null;
+  status: RunStatus;
+  threadId: string;
+};
+
+export type TimelineEventRecord = {
+  createdAt: string;
+  id: string;
+  payload: Record<string, unknown>;
+  runId: string | null;
+  sequence: number;
+  threadId: string;
+  type: string;
+};
+
+export type ThreadCompactionResponse = {
+  compactedEventCount: number;
+  estimatedTokens: number;
+  event: TimelineEventRecord | null;
+  skippedReason: string | null;
+  thread: ThreadRecord;
+};
+
+export type CreateThreadInput = {
+  fastMode?: boolean;
+  harnessType: HarnessType;
+  profileId?: string;
+  title?: string;
+  workspacePath: string;
+};
+
+export type CreateRunInput = {
+  fastMode?: boolean;
+  prompt: string;
 };
 
 export type PreviewDependencyServiceInput = {
+  browserDirect: boolean;
   name: string;
   url: string;
-  browserDirect: boolean;
 };
 
 export type PreviewCommandInput = {
-  label: string;
-  cwd: string;
   command: string;
+  cwd: string;
+  label: string;
 };
 
 export type PreviewPublishedOriginInput = {
@@ -40,77 +103,77 @@ export type PreviewPublishedOriginInput = {
 export type PreviewPublishedOriginStatus = "published" | "failed" | "unpublished";
 
 export type PreviewPublishedOrigin = {
-  id: string;
-  source: "target" | "dependency-service";
-  dependencyServiceName: string | null;
+  createdAt: string;
   dependencyServiceIndex: number | null;
+  dependencyServiceName: string | null;
+  error: string | null;
+  httpsPort: number;
+  id: string;
+  localProxyPort?: number | null;
   name: string;
   provider: "tailscale-serve";
-  sourceUrl: string;
   publishedUrl: string | null;
-  httpsPort: number;
-  localProxyPort?: number | null;
+  source: "target" | "dependency-service";
+  sourceUrl: string;
   status: PreviewPublishedOriginStatus;
-  error: string | null;
-  createdAt: string;
   updatedAt: string;
 };
 
 export type WiredPreview = {
+  commands: PreviewCommandInput[];
+  createdAt: string;
+  dependencyServices: PreviewDependencyServiceInput[];
   id: string;
   name: string;
-  wiringSessionId: string | null;
   projectDirectory: string;
+  publishedOrigins: PreviewPublishedOrigin[];
+  requestedPublishedOrigins: PreviewPublishedOriginInput[];
   target: {
     name: string;
     url: string;
   };
-  dependencyServices: PreviewDependencyServiceInput[];
-  commands: PreviewCommandInput[];
-  requestedPublishedOrigins: PreviewPublishedOriginInput[];
-  publishedOrigins: PreviewPublishedOrigin[];
-  createdAt: string;
   updatedAt: string;
+  wiringThreadId: string | null;
 };
 
 export type WiredPreviewInput = {
+  commands: PreviewCommandInput[];
+  dependencyServices: PreviewDependencyServiceInput[];
   name: string;
   projectDirectory: string;
+  requestedPublishedOrigins: PreviewPublishedOriginInput[];
   target: {
     name: string;
     url: string;
   };
-  dependencyServices: PreviewDependencyServiceInput[];
-  commands: PreviewCommandInput[];
-  requestedPublishedOrigins: PreviewPublishedOriginInput[];
 };
 
 export type PreviewManifestStatus = "pending" | "approved";
 
 export type PreviewManifestInput = WiredPreviewInput & {
   wiredPreviewId?: string;
-  wiringSessionId?: string;
+  wiringThreadId?: string;
 };
 
 export type PreviewManifest = {
-  id: string;
-  status: PreviewManifestStatus;
-  wiredPreviewId: string | null;
-  wiringSessionId: string | null;
+  approvedAt: string | null;
   approvedWiredPreviewId: string | null;
-  proposedName: string;
+  commands: PreviewCommandInput[];
+  createdAt: string;
+  dependencyServices: PreviewDependencyServiceInput[];
+  id: string;
+  materialHash: string;
   projectDirectory: string;
+  proposedName: string;
+  requestedPublishedOrigins: PreviewPublishedOriginInput[];
+  status: PreviewManifestStatus;
   target: {
     name: string;
     url: string;
   };
-  dependencyServices: PreviewDependencyServiceInput[];
-  commands: PreviewCommandInput[];
-  requestedPublishedOrigins: PreviewPublishedOriginInput[];
-  materialHash: string;
-  createdAt: string;
   updatedAt: string;
-  approvedAt: string | null;
+  wiredPreviewId: string | null;
+  wiringThreadId: string | null;
 };
 
 export type PreviewManifestApproval = {
@@ -118,27 +181,10 @@ export type PreviewManifestApproval = {
   wiredPreview: WiredPreview;
 };
 
-export type PreviewWiringSessionLaunch = {
-  session: OpenCozySessionSummary;
+export type PreviewWiringThreadLaunch = {
   prompt: string;
   reused: boolean;
+  run: RunRecord;
+  thread: ThreadRecord;
   wiredPreview: WiredPreview | null;
-};
-
-export type OpenCozySessionMode = "new" | "resume" | "resumeLast";
-
-export type OpenCozySessionSummary = {
-  id: string;
-  name: string;
-  codexThreadId: string | null;
-  wiredPreviewId: string | null;
-  deviceId: string | null;
-  mode: OpenCozySessionMode;
-  command: string;
-  args: string[];
-  cwd: string;
-  status: "running" | "exited";
-  exitCode: number | null;
-  createdAt: string;
-  updatedAt: string;
 };

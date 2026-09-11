@@ -45,10 +45,10 @@ function readPort(value, fallback) {
   return parsed;
 }
 
-function readAllowedHosts(value) {
+function readAllowedHosts(...values) {
   return Array.from(new Set(
-    (value || "")
-      .split(",")
+    values
+      .flatMap((value) => (value || "").split(","))
       .map((host) => host.trim())
       .filter(Boolean)
   ));
@@ -86,15 +86,18 @@ function localNetworkHints() {
   }
 
   return {
+    addresses,
     names: Array.from(names).filter(Boolean),
-    addresses
   };
 }
 
 function request(url, headers = {}) {
   return new Promise((resolve) => {
     const req = http.get(url, { headers, timeout: 1_500 }, (res) => {
-      res.on("end", () => resolve({ ok: (res.statusCode || 0) >= 200 && (res.statusCode || 0) < 400, statusCode: res.statusCode || 0 }));
+      res.on("end", () => resolve({
+        ok: (res.statusCode || 0) >= 200 && (res.statusCode || 0) < 400,
+        statusCode: res.statusCode || 0,
+      }));
       res.resume();
     });
 
@@ -109,7 +112,7 @@ function request(url, headers = {}) {
 function run(executable, args) {
   const result = spawnSync(executable, args, {
     cwd: projectRoot,
-    stdio: "inherit"
+    stdio: "inherit",
   });
 
   return result.status ?? 1;
@@ -126,14 +129,15 @@ function printSkipped(message) {
 async function readState() {
   const fileEnv = readDotenv(envPath);
   const env = { ...process.env, ...fileEnv };
-  const backendHost = env.OPENCOZY_HOST || "0.0.0.0";
-  const backendPort = readPort(env.OPENCOZY_PORT, 8788);
-  const frontendPort = readPort(env.OPENCOZY_FRONTEND_PORT, 5175);
-  const allowedHosts = readAllowedHosts(env.OPENCOZY_ALLOWED_HOSTS);
-  const tailscaleSocket = env.OPENCOZY_TAILSCALE_SOCKET || "";
-  const tailscale = findExecutable("tailscale", [
+  const backendHost = env.LITEHARNESS_BACKEND_HOST || "127.0.0.1";
+  const backendPort = readPort(env.LITEHARNESS_BACKEND_PORT, 8787);
+  const frontendHost = env.LITEHARNESS_FRONTEND_HOST || "127.0.0.1";
+  const frontendPort = readPort(env.LITEHARNESS_FRONTEND_PORT, 5173);
+  const allowedHosts = readAllowedHosts(env.LITEHARNESS_ALLOWED_HOSTS, env.LITEHARNESS_TAILSCALE_HOST);
+  const tailscaleSocket = env.LITEHARNESS_TAILSCALE_SOCKET || "";
+  const tailscale = findExecutable(env.LITEHARNESS_TAILSCALE_BIN || "tailscale", [
     "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-    "/Applications/Tailscale.app/Contents/MacOS/tailscale"
+    "/Applications/Tailscale.app/Contents/MacOS/tailscale",
   ]);
   const hints = localNetworkHints();
   const canCheckLocalHttp = process.env.CODEX_SANDBOX_NETWORK_DISABLED !== "1";
@@ -146,24 +150,25 @@ async function readState() {
     backendHost,
     backendPort,
     frontendHealth,
+    frontendHost,
     frontendPort,
     hints,
     tailscale,
-    tailscaleSocket
+    tailscaleSocket,
   };
 }
 
 function printSummary(state) {
-  console.log("OpenCozy private WAN");
+  console.log("Opencozy private WAN");
   console.log(`backend: ${state.backendHost}:${state.backendPort}`);
-  console.log(`frontend: 0.0.0.0:${state.frontendPort}`);
+  console.log(`frontend: ${state.frontendHost}:${state.frontendPort}`);
   console.log(`allowed hosts: ${state.allowedHosts.length ? state.allowedHosts.join(", ") : "<none>"}`);
   console.log(`tailscale cli: ${state.tailscale || "<not found>"}`);
   console.log(`tailscale socket: ${state.tailscaleSocket || "<default>"}`);
   console.log("");
 
   printCheck(isLoopbackHost(state.backendHost), "backend should bind to 127.0.0.1 for Tailscale Serve");
-  printCheck(state.allowedHosts.length > 0, "OPENCOZY_ALLOWED_HOSTS should include LAN and tailnet browser hostnames");
+  printCheck(state.allowedHosts.length > 0, "LITEHARNESS_ALLOWED_HOSTS should include LAN and tailnet browser hostnames");
   printCheck(Boolean(state.tailscale), state.tailscale ? "Tailscale CLI is available" : "Tailscale CLI was not found");
   if (state.backendHealth) {
     printCheck(state.backendHealth.ok, `backend health on 127.0.0.1:${state.backendPort}`);
@@ -210,14 +215,14 @@ async function serve() {
   }
 
   if (!isLoopbackHost(state.backendHost)) {
-    console.error("\nRefusing to start Tailscale Serve while OPENCOZY_HOST is not 127.0.0.1/localhost.");
-    console.error("Update .env, then restart OpenCozy with explicit approval because restarting kills active Codex sessions.");
+    console.error("\nRefusing to start Tailscale Serve while LITEHARNESS_BACKEND_HOST is not 127.0.0.1/localhost.");
+    console.error("Update .env, then restart Opencozy services before retrying.");
     return 1;
   }
 
   if (state.allowedHosts.length === 0) {
-    console.error("\nRefusing to start Tailscale Serve without OPENCOZY_ALLOWED_HOSTS.");
-    console.error("Add the LAN and tailnet browser hostnames to .env, then restart OpenCozy with explicit approval.");
+    console.error("\nRefusing to start Tailscale Serve without LITEHARNESS_ALLOWED_HOSTS.");
+    console.error("Add the LAN and tailnet browser hostnames to .env, then restart Opencozy services.");
     return 1;
   }
 
@@ -234,7 +239,7 @@ async function status() {
   }
 
   console.log("");
-  const statusCode = run(state.tailscale, tailscaleArgs(state, ["status"]));
+  const statusCode = run(state.tailscale, tailscaleArgs(state, ["status", "--self"]));
   console.log("");
   const serveCode = run(state.tailscale, tailscaleArgs(state, ["serve", "status"]));
   return statusCode === 0 && serveCode === 0 ? 0 : 1;

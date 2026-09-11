@@ -1,0 +1,73 @@
+.lh-file-asset { width: 100%; margin: 10px 0; }
+.lh-asset-card { display: flex; gap: 14px; align-items: center; width: 100%; padding: 14px; border: 1px solid #303030; border-radius: 14px; background: #141414; color: #eee; text-align: left; font: inherit; }
+.lh-asset-card > svg { flex-shrink: 0; color: #aaa; }
+.lh-asset-card-copy { min-width: 0; display: grid; gap: 5px; overflow-wrap: anywhere; }
+.lh-asset-card-copy strong { font-size: 14px; font-weight: 600; }
+.lh-asset-card-copy span { font-size: 12px; color: #aaa; }
+.lh-asset-card-copy small { font-size: 11px; color: #888; }
+.lh-asset-thumbnail { width: 80px; height: 80px; object-fit: contain; border-radius: 6px; }
+.lh-asset-viewer { position: fixed; inset: var(--lh-viewport-top, 0px) 0 auto; width: 100%; height: var(--lh-viewport-height, 100dvh); max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: #0a0a0a; color: #eee; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.lh-asset-viewer[open] { display: flex; flex-direction: column; }
+.lh-asset-viewer::backdrop { background: #0a0a0a; }
+.lh-asset-viewer-header { display: flex; align-items: center; gap: 8px; padding: max(8px, env(safe-area-inset-top)) 10px 8px; border-bottom: 1px solid #303030; flex-shrink: 0; }
+.lh-asset-viewer-header > div { flex: 1; min-width: 0; }
+.lh-asset-viewer-header strong, .lh-asset-viewer-header small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lh-asset-viewer-header strong { font-size: 14px; }
+.lh-asset-viewer-header small { font-size: 11px; color: #aaa; margin-top: 4px; }
+.lh-asset-viewer button, .lh-asset-viewer-header a { min-width: 44px; min-height: 44px; border: 0; border-radius: 8px; background: transparent; color: inherit; display: inline-grid; place-items: center; font: inherit; text-decoration: none; }
+.lh-asset-viewer button:disabled { opacity: .35; }
+.lh-asset-viewer-content { flex: 1; min-height: 0; overflow: auto; padding-bottom: env(safe-area-inset-bottom); overscroll-behavior: contain; }
+.lh-asset-viewer-content > p, .lh-asset-viewer-content > div[role=alert] { padding: 16px; }
+.lh-asset-image { display: block; width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none; }
+.lh-asset-viewer video { width: 100%; max-height: 100%; }
+.lh-asset-viewer audio { width: calc(100% - 32px); margin: 24px 16px; }
+.lh-asset-text { padding: 16px; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.6 ui-monospace, monospace; tab-size: 2; }
+.lh-asset-html { width: 100%; height: 100%; border: 0; background: white; display: block; }
+.lh-asset-note { font-size: 12px; color: #aaa; }
+.lh-pdf-viewer nav { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 8px; background: #141414; font-size: 12px; }
+.lh-pdf-page { width: 100%; height: 100%; }
+.lh-pdf-page canvas { display: block; margin: auto; background: white; }
+
+.lh-asset-source { padding: 0 14px; border-bottom: 1px solid #303030; font-size: 11px; color: #aaa; flex-shrink: 0; max-height: 25%; overflow: auto; overflow-wrap: anywhere; }
+.lh-asset-source summary { min-height: 44px; padding: 12px 0; color: #eee; cursor: pointer; }
+.lh-asset-source span { display: block; padding-bottom: 6px; }
+
+.lh-asset-viewer-heading { touch-action: none; }
+.lh-asset-canvas-content { overflow: hidden; display: flex; flex-direction: column; }
+.lh-pdf-viewer { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.lh-zoom-surface { height: 100%; min-height: 0; display: flex; flex: 1; flex-direction: column; }
+.lh-zoom-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.lh-zoom-viewport:active { cursor: grabbing; }
+.lh-zoom-viewport:focus-visible { outline: 1px solid #888; outline-offset: -2px; }
+.lh-zoom-content { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.lh-zoom-controls, .lh-reading-controls { display: flex; align-items: center; justify-content: center; gap: 12px; flex-shrink: 0; background: #141414; font-size: 12px; }
+.lh-zoom-controls output { min-width: 44px; text-align: center; }
+.lh-gesture-hint { display: block; text-align: center; color: #999; font-size: 10px; padding: 2px 6px 6px; flex-shrink: 0; }
+
+.lh-html-frame { flex: 1; min-height: 0; overflow: hidden; }
+
+.lh-asset-card-frame { position: relative; display: flex; align-items: center; min-width: 0; width: 100%; min-height: 100px; border: 1px solid #303030; border-radius: 14px; background: #141414; }
+.lh-asset-card-frame > .lh-asset-card { display: flex; flex: 1; min-width: 0; align-self: stretch; width: auto; padding: 14px 8px 14px 14px; border: 0; border-radius: 14px 0 0 14px; background: transparent; }
+.lh-asset-card-copy { flex: 1; }
+.lh-asset-card-copy strong, .lh-asset-card-copy > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.lh-asset-thumbnail { width: 48px; height: 64px; flex-shrink: 0; }
+.lh-asset-share-button { flex-shrink: 0; display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: #bbb; cursor: pointer; }
+.lh-asset-card-frame > .lh-asset-share-button { margin-right: 6px; }
+.lh-file-stack { position: relative; isolation: isolate; padding-bottom: 8px; }
+.lh-file-stack::before, .lh-file-stack::after { content: ''; position: absolute; height: 80%; border: 1px solid #303030; border-radius: 14px; background: #141414; pointer-events: none; }
+.lh-file-stack::before { inset: auto 12px 0; z-index: -2; }
+.lh-file-stack::after { inset: auto 6px 4px; z-index: -1; }
+.lh-file-stack > .lh-asset-card-frame { height: 104px; }
+.lh-asset-list { list-style: none; margin: 0; padding: 12px 12px max(12px, env(safe-area-inset-bottom)); }
+.lh-asset-list li + li { margin-top: 10px; }
+.lh-asset-share-dialog { position: fixed; inset: auto 0 max(12px, env(safe-area-inset-bottom)); box-sizing: border-box; width: calc(100% - 24px); max-width: 420px; max-height: calc(100dvh - 48px); margin: 0 auto; padding: 16px; border: 1px solid #333; border-radius: 18px; background: #181818; color: #eee; font: 14px/1.5 system-ui, sans-serif; overflow: auto; overscroll-behavior: contain; }
+.lh-asset-share-dialog::backdrop { background: rgb(0 0 0 / .65); }
+.lh-asset-share-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lh-asset-share-dialog button { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; }
+.lh-asset-share-dialog button:disabled { opacity: .4; }
+.lh-asset-share-dialog .lh-share-primary { width: 100%; background: #e5e5e5; color: #111; font-weight: 600; }
+.lh-share-selection { max-height: 100px; overflow: auto; overflow-wrap: anywhere; }
+.lh-asset-share-dialog small, .lh-asset-share-dialog [role=status] { color: #aaa; }
+.lh-asset-card:focus-visible, .lh-asset-share-button:focus-visible, .lh-asset-share-dialog button:focus-visible { outline: 2px solid #aaa; outline-offset: -3px; }
+
+.lh-asset-viewer-header:focus, .lh-asset-share-dialog header:focus { outline: none; }
